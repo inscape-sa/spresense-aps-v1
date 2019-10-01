@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "configurations": [
+        {
+            "name": "Main core debug",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/out/${workspaceFolderBasename}.nuttx",
+            "device": "CXD5602",
+            "preLaunchTask": "Clean flash",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "${config:spresense.sdk.tools.path}/cxd5602.cfg"
+            ],
+            "svdFile": "${config:spresense.sdk.tools.path}/SVD/cxd5602.svd",
+            "overrideRestartCommands": [
+                "monitor sleep 3000",
+                "load",
+                "monitor reset halt"
+            ]
+        }
+    ]
+}
