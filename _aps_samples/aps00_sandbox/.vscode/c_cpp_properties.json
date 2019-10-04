@@ -18,5 +18,6 @@
             "cppStandard": "c++11",
             "compilerPath": "${config:spresense.env.toolchain.path}/arm-none-eabi-gcc"
         }
-    ]
+    ],
+    "version": 4
 }
