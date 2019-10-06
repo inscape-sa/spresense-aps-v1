@@ -39,7 +39,7 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-#define MAX_TASKS (1)
+#define MAX_TASKS (2)
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -71,9 +71,11 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   int v_fd;
   int loop;
-  int taskid = 0;
-  
-  struct v4l2_buffer buf;
+  int tid;
+  int curr_taskid = 0;
+  int prev_taskid = 0;
+
+  struct v4l2_buffer buf[2];
   apsamp_task taskset;
 
   ret = apsamp_camera_init(&v_fd);
@@ -83,48 +85,70 @@ int aps_camera_asmp_main(int argc, char *argv[])
       return ERROR;
     }
 
-  for (taskid = 0; taskid < MAX_TASKS; taskid++)
+  for (tid = 0; tid < MAX_TASKS; tid++)
     {
-      apsamp_task_init_and_exec(&taskset, taskid);
+      apsamp_task_init_and_exec(&taskset, tid);
     } 
   
-  taskid = 0;
+  curr_taskid = 0;
+  prev_taskid = -1;
   for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
     {
-      if ((ret = apsamp_capdata_lock(v_fd, &buf) != 0))
-        {
-          printf("Fail DQBUF %d\n", errno);
-          return ERROR;
+      if (curr_taskid >= 0) 
+        {      
+          if ((ret = apsamp_capdata_lock(v_fd, &buf[curr_taskid]) != 0))
+            {
+              printf("Fail DQBUF %d\n", errno);
+              return ERROR;
+            }
+          /* Convert YUV color format to RGB565 */
+          printf("|%02d| BUF -> %p\n", loop, buf[curr_taskid].m.userptr);
+          //apsamp_main_yuv2rgb((void *)buf[curr_taskid].m.userptr, buf[curr_taskid].bytesused);
+          /* communication ASMP sub core*/
+          apsamp_send(&taskset.mq[curr_taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf[curr_taskid].m.userptr);
         }
 
-      /* Convert YUV color format to RGB565 */
-      printf("|%02d| BUF -> %p\n", loop, buf.m.userptr);
-      //apsamp_main_yuv2rgb((void *)buf.m.userptr, buf.bytesused);
-
-      /* communication ASMP sub core*/
-      apsamp_send(&taskset.mq[taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf.m.userptr);
-      apsamp_receive(&taskset.mq[taskid], &recv);
-      /* Lock mutex for synchronize with worker after it's started */
-      mpmutex_lock(&taskset.mutex[taskid]);
-      message("|--|Worker said: %s\n", taskset.buf[taskid]);
-      mpmutex_unlock(&taskset.mutex[taskid]);
-
-      apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)buf.m.userptr);
-
-      if ((ret = apsamp_capdata_release(v_fd, &buf)) != 0)
+      if (prev_taskid >= 0) 
         {
-          printf("Fail QBUF %d\n", errno);
-          return ERROR;
+          /* communication ASMP sub core*/
+          apsamp_receive(&taskset.mq[prev_taskid], &recv);
+          printf("|%02d| BUF <- %p\n", loop, recv);
+          /* Lock mutex for synchronize with worker after it's started */
+#if 0
+          mpmutex_lock(&taskset.mutex[prev_taskid]);
+          message("|--|Worker(%d) said: %s\n", taskset.cpuid[prev_taskid], taskset.buf[prev_taskid]);
+          mpmutex_unlock(&taskset.mutex[prev_taskid]);
+#endif
+          apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)recv); //(void *)buf[prev_taskid].m.userptr);
+
+          if ((ret = apsamp_capdata_release(v_fd, &buf[prev_taskid])) != 0)
+            {
+              printf("Fail QBUF %d\n", errno);
+              return ERROR;
+            }
+        } 
+
+      if (curr_taskid == 0)
+        {
+          prev_taskid = curr_taskid;
+          curr_taskid = 1;
+        } else {
+          prev_taskid = curr_taskid;
+          curr_taskid = 0;
+        }
+      if (loop >= DEFAULT_REPEAT_NUM)
+        {
+          curr_taskid = -1;
         }
     }
 
-  for (taskid = 0; taskid < MAX_TASKS; taskid++)
+  for (tid = 0; tid < MAX_TASKS; tid++)
     { 
       /* Show worker copied data */
       /* Send command to worker */
-      apsamp_send(&taskset.mq[taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
-      apsamp_receive(&taskset.mq[taskid], &recv);
-      apsamp_task_fini(&taskset, taskid);
+      apsamp_send(&taskset.mq[tid], MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
+      apsamp_receive(&taskset.mq[tid], &recv);
+      apsamp_task_fini(&taskset, tid);
     }
 
   /* Finalize all of MP objects */
@@ -144,7 +168,7 @@ static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send)
 {
   int ret;
 
-  message("camera_main_loop: send = ID %d, data=%08x\n", id, send);
+  //message("camera_main_loop: send = ID %d, data=%08x\n", id, send);
   /* Send command to worker */
   ret = mpmq_send(p_mq, id, send);
   if (ret < 0)
@@ -164,7 +188,7 @@ static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv)
       err("mpmq_recieve() failure. %d\n", id);
       return id;
     }
-  message("Worker response: ID = %d, data = %08x\n", id, *p_recv); 
+  //message("Worker response: ID = %d, data = %08x\n", id, *p_recv); 
   return OK;    
 }
 
@@ -193,11 +217,11 @@ static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
     }
 
   /* taskid */
-  ptaskset->cpuid[taskid] = mptask_getcpuid(&ptaskset->mptask[taskid]);
-  message("attached at CPU-%d\n", ptaskset->cpuid[taskid]);
+  ptaskset->cpuid[taskid] = mptask_getcpuid(&ptaskset->mptask[taskid]) - 2; /* local cpuid*/
+  message("attached at CPU#%d[local-id]\n", ptaskset->cpuid[taskid]);
 
   /* Initialize MP mutex and bind it to MP task */
-  ret = mpmutex_init(&ptaskset->mutex[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MUTEX);
+  ret = mpmutex_init(&ptaskset->mutex[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MUTEX(ptaskset->cpuid[taskid]));
   if (ret < 0)
     {
       err("mpmutex_init() failure. %d\n", ret);
@@ -212,7 +236,7 @@ static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
 
   /* Initialize MP message queue with assigned CPU ID, and bind it to MP task */
 
-  ret = mpmq_init(&ptaskset->mq[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MQ, mptask_getcpuid(&ptaskset->mptask[taskid]));
+  ret = mpmq_init(&ptaskset->mq[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MQ(ptaskset->cpuid[taskid]), mptask_getcpuid(&ptaskset->mptask[taskid]));
   if (ret < 0)
     {
       err("mpmq_init() failure. %d\n", ret);
@@ -226,7 +250,7 @@ static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
     }
 
   /* Initialize MP shared memory and bind it to MP task */
-  ret = mpshm_init(&ptaskset->shm[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM, SHMSIZE_IMAGE_YUV_SIZE);
+  ret = mpshm_init(&ptaskset->shm[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM(ptaskset->cpuid[taskid]), SHMSIZE_IMAGE_YUV_SIZE);
   if (ret < 0)
     {
       err("mpshm_init() failure. %d\n", ret);

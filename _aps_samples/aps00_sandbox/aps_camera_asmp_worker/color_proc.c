@@ -10,6 +10,7 @@
 #include <semaphore.h>
 
 #include "include/config_image_asmp.h"
+#include "include/color_proc_subcore.h"
 
 /****************************************************************************
  * Private Types
