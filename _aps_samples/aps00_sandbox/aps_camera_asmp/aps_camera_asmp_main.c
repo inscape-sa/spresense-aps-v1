@@ -39,19 +39,18 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
+#define MAX_TASKS (1)
 /****************************************************************************
  * Private Types
  ****************************************************************************/
 typedef struct apsamp_task_s {
-  mptask_t mptask;
-  mpmutex_t mutex;
-  mpshm_t shm_yuv;
-  mpshm_t shm_rgb;
-  mpmq_t mq;
-
-  char *buf_yuv;
-  char *buf_rgb;
+  mptask_t mptask[MAX_TASKS];
+  mpmutex_t mutex[MAX_TASKS];
+  mpmq_t mq[MAX_TASKS];
+  mpshm_t shm[MAX_TASKS];
+  char *buf[MAX_TASKS];
+  int cpuid[MAX_TASKS];
+  int wret[MAX_TASKS];
 } apsamp_task;
 
 /****************************************************************************
@@ -59,20 +58,20 @@ typedef struct apsamp_task_s {
  ****************************************************************************/
 static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send);
 static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv);
-static int apsamp_task_init(apsamp_task *ptaskset);
-static void apsamp_task_fini(apsamp_task *ptaskset);
+static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid);
+static void apsamp_task_fini(apsamp_task *ptaskset, int taskid);
 
 /****************************************************************************
  * main
  ****************************************************************************/
 int aps_camera_asmp_main(int argc, char *argv[])
 {
-  uint32_t send;
   uint32_t recv;
-  int ret, wret;
+  int ret;
 
   int v_fd;
   int loop;
+  int taskid = 0;
   
   struct v4l2_buffer buf;
   apsamp_task taskset;
@@ -83,16 +82,13 @@ int aps_camera_asmp_main(int argc, char *argv[])
       printf("camera_main: Failed at init\n");
       return ERROR;
     }
-  apsamp_task_init(&taskset);
 
-  /* Run worker */
-  ret = mptask_exec(&taskset.mptask);
-  if (ret < 0)
+  for (taskid = 0; taskid < MAX_TASKS; taskid++)
     {
-      err("mptask_exec() failure. %d\n", ret);
-      return ret;
-    }
+      apsamp_task_init_and_exec(&taskset, taskid);
+    } 
   
+  taskid = 0;
   for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
     {
       if ((ret = apsamp_capdata_lock(v_fd, &buf) != 0))
@@ -106,12 +102,12 @@ int aps_camera_asmp_main(int argc, char *argv[])
       //apsamp_main_yuv2rgb((void *)buf.m.userptr, buf.bytesused);
 
       /* communication ASMP sub core*/
-      apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf.m.userptr);
-      apsamp_receive(&taskset.mq, &recv);
+      apsamp_send(&taskset.mq[taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf.m.userptr);
+      apsamp_receive(&taskset.mq[taskid], &recv);
       /* Lock mutex for synchronize with worker after it's started */
-      mpmutex_lock(&taskset.mutex);
-      message("|--|Worker said: %s\n", taskset.buf_yuv);
-      mpmutex_unlock(&taskset.mutex);
+      mpmutex_lock(&taskset.mutex[taskid]);
+      message("|--|Worker said: %s\n", taskset.buf[taskid]);
+      mpmutex_unlock(&taskset.mutex[taskid]);
 
       apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)buf.m.userptr);
 
@@ -121,27 +117,19 @@ int aps_camera_asmp_main(int argc, char *argv[])
           return ERROR;
         }
     }
- 
-  /* Show worker copied data */
-  /* Send command to worker */
-  apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
-  apsamp_receive(&taskset.mq, &recv);
 
-  /* Destroy worker */
-  wret = -1;
-  ret = mptask_destroy(&taskset.mptask, false, &wret);
-  if (ret < 0)
-    {
-      err("mptask_destroy() failure. %d\n", ret);
-      return ret;
+  for (taskid = 0; taskid < MAX_TASKS; taskid++)
+    { 
+      /* Show worker copied data */
+      /* Send command to worker */
+      apsamp_send(&taskset.mq[taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
+      apsamp_receive(&taskset.mq[taskid], &recv);
+      apsamp_task_fini(&taskset, taskid);
     }
-
-  message("Worker exit status = %d\n", wret);
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
 
-  apsamp_task_fini(&taskset);
   return 0;
 }
 
@@ -183,34 +171,39 @@ static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv)
 /***************************************************************
  * Task Generating API
  ***************************************************************/
-static int apsamp_task_init(apsamp_task *ptaskset)
+static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
 {
   int ret;
-  
-/* Initialize MP task */
-  ret = mptask_init(&ptaskset->mptask, WORKER_FILE);
+
+  /* clear Worker Return code */
+  ptaskset->wret[taskid] = -1;
+
+  ret = mptask_init(&ptaskset->mptask[taskid], WORKER_FILE);
   if (ret != 0)
     {
       err("mptask_init() failure. %d\n", ret);
       return ret;
     }
 
-  ret = mptask_assign(&ptaskset->mptask);
+  ret = mptask_assign(&ptaskset->mptask[taskid]);
   if (ret != 0)
     {
       err("mptask_assign() failure. %d\n", ret);
       return ret;
     }
 
-  /* Initialize MP mutex and bind it to MP task */
+  /* taskid */
+  ptaskset->cpuid[taskid] = mptask_getcpuid(&ptaskset->mptask[taskid]);
+  message("attached at CPU-%d\n", ptaskset->cpuid[taskid]);
 
-  ret = mpmutex_init(&ptaskset->mutex, APS00_SANDBOX_APS_CAMERA_ASMPKEY_MUTEX);
+  /* Initialize MP mutex and bind it to MP task */
+  ret = mpmutex_init(&ptaskset->mutex[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MUTEX);
   if (ret < 0)
     {
       err("mpmutex_init() failure. %d\n", ret);
       return ret;
     }
-  ret = mptask_bindobj(&ptaskset->mptask, &ptaskset->mutex);
+  ret = mptask_bindobj(&ptaskset->mptask[taskid], &ptaskset->mutex[taskid]);
   if (ret < 0)
     {
       err("mptask_bindobj(mutex) failure. %d\n", ret);
@@ -219,13 +212,13 @@ static int apsamp_task_init(apsamp_task *ptaskset)
 
   /* Initialize MP message queue with assigned CPU ID, and bind it to MP task */
 
-  ret = mpmq_init(&ptaskset->mq, APS00_SANDBOX_APS_CAMERA_ASMPKEY_MQ, mptask_getcpuid(&ptaskset->mptask));
+  ret = mpmq_init(&ptaskset->mq[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_MQ, mptask_getcpuid(&ptaskset->mptask[taskid]));
   if (ret < 0)
     {
       err("mpmq_init() failure. %d\n", ret);
       return ret;
     }
-  ret = mptask_bindobj(&ptaskset->mptask, &ptaskset->mq);
+  ret = mptask_bindobj(&ptaskset->mptask[taskid], &ptaskset->mq[taskid]);
   if (ret < 0)
     {
       err("mptask_bindobj(mq) failure. %d\n", ret);
@@ -233,13 +226,13 @@ static int apsamp_task_init(apsamp_task *ptaskset)
     }
 
   /* Initialize MP shared memory and bind it to MP task */
-  ret = mpshm_init(&ptaskset->shm_yuv, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM_YUV, SHMSIZE_IMAGE_YUV_SIZE);
+  ret = mpshm_init(&ptaskset->shm[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM, SHMSIZE_IMAGE_YUV_SIZE);
   if (ret < 0)
     {
       err("mpshm_init() failure. %d\n", ret);
       return ret;
     }
-  ret = mptask_bindobj(&ptaskset->mptask, &ptaskset->shm_yuv);
+  ret = mptask_bindobj(&ptaskset->mptask[taskid], &ptaskset->shm[taskid]);
   if (ret < 0)
     {
       err("mptask_binobj(shm) failure. %d\n", ret);
@@ -247,48 +240,47 @@ static int apsamp_task_init(apsamp_task *ptaskset)
     }
 
   /* Map shared memory to virtual space */
-  ptaskset->buf_yuv = mpshm_attach(&ptaskset->shm_yuv, 0);
-  if (!ptaskset->buf_yuv)
+  ptaskset->buf[taskid] = mpshm_attach(&ptaskset->shm[taskid], 0);
+  if (!ptaskset->buf[taskid])
     {
       err("mpshm_attach() failure.\n");
       return ret;
     }
-  message("attached at %08x\n", (uintptr_t)ptaskset->buf_yuv);
-  memset(ptaskset->buf_yuv, 0, SHMSIZE_IMAGE_YUV_SIZE);
+  message("attached at %08x\n", (uintptr_t)ptaskset->buf[taskid]);
+  memset(ptaskset->buf[taskid], 0, SHMSIZE_IMAGE_YUV_SIZE);
 
-  ret = mpshm_init(&ptaskset->shm_rgb, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM_RGB, SHMSIZE_IMAGE_RGB_SIZE);
+  /* Run worker */
+  ret = mptask_exec(&ptaskset->mptask[taskid]);
   if (ret < 0)
     {
-      err("mpshm_init() failure. %d\n", ret);
+      err("mptask_exec() failure. %d\n", ret);
       return ret;
     }
-  ret = mptask_bindobj(&ptaskset->mptask, &ptaskset->shm_rgb);
-  if (ret < 0)
-    {
-      err("mptask_binobj(shm) failure. %d\n", ret);
-      return ret;
-    }
-
-  /* Map shared memory to virtual space */
-  ptaskset->buf_rgb = mpshm_attach(&ptaskset->shm_rgb, 0);
-  if (!ptaskset->buf_rgb)
-    {
-      err("mpshm_attach() failure.\n");
-      return ret;
-    }
-  message("attached at %08x\n", (uintptr_t)ptaskset->buf_rgb);
-  memset(ptaskset->buf_rgb, 0, SHMSIZE_IMAGE_RGB_SIZE);
 
   return OK;
 }
 
-static void apsamp_task_fini(apsamp_task *ptaskset)
+static void apsamp_task_fini(apsamp_task *ptaskset, int taskid)
 {
-  mpshm_detach(&ptaskset->shm_yuv);
-  mpshm_destroy(&ptaskset->shm_yuv);
-  mpshm_detach(&ptaskset->shm_rgb);
-  mpshm_destroy(&ptaskset->shm_rgb);
-  mpmutex_destroy(&ptaskset->mutex);
-  mpmq_destroy(&ptaskset->mq);
+  int ret, wret;
+
+  /* Destroy worker */
+  wret = -1;
+  ret = mptask_destroy(&ptaskset->mptask[taskid], false, &wret);
+  if (ret < 0)
+    {
+      err("mptask_destroy() failure. %d\n", ret);
+      return;
+    }
+  message("Worker exit status = %d\n", wret);
+  ptaskset->wret[taskid] = wret;
+  mpshm_detach(&ptaskset->shm[taskid]);
+  mpshm_destroy(&ptaskset->shm[taskid]);
+  
+    {
+      mpmutex_destroy(&ptaskset->mutex[taskid]);
+      mpmq_destroy(&ptaskset->mq[taskid]);
+    }
+
   return;
 }

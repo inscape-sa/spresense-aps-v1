@@ -25,12 +25,10 @@ static char *strcopy(char *dest, const char *src)
 int main(void)
 {
   mpmutex_t mutex;
-  mpshm_t shm_yuv;
-  mpshm_t shm_rgb;
+  mpshm_t shm;
   mpmq_t mq;
   uint32_t msgdata;
-  char *buf_yuv;
-  char *buf_rgb;
+  char *buf;
   int msgid;
   int ret;
 
@@ -46,26 +44,22 @@ int main(void)
   ASSERT(ret == 0);
 
   /* Initialize MP shared memory */
-  ret = mpshm_init(&shm_yuv, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM_YUV, SHMSIZE_IMAGE_YUV_SIZE);
-  ASSERT(ret == 0);
-  ret = mpshm_init(&shm_rgb, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM_RGB, SHMSIZE_IMAGE_RGB_SIZE);
+  ret = mpshm_init(&shm, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM, SHMSIZE_IMAGE_YUV_SIZE);
   ASSERT(ret == 0);
 
   /* Map shared memory to virtual space */
-  buf_yuv = (char *)mpshm_attach(&shm_yuv, 0);
-  ASSERT(buf_yuv);
-  buf_rgb = (char *)mpshm_attach(&shm_rgb, 0);
-  ASSERT(buf_rgb);
+  buf = (char *)mpshm_attach(&shm, 0);
+  ASSERT(buf);
 
   /* Receive message from supervisor */
   while (1) 
-  {
+    {
     msgid = mpmq_receive(&mq, &msgdata);
     if (msgid == MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP)
       {
         /* Copy hello message to shared memory */
         mpmutex_lock(&mutex);
-        strcopy(buf_yuv, helloworld);
+        strcopy(buf, helloworld);
         mpmutex_unlock(&mutex);
 
         apsamp_main_yuv2rgb((void *)msgdata, SHMSIZE_IMAGE_YUV_SIZE);
@@ -85,12 +79,10 @@ int main(void)
       {
         ASSERT(msgid);
       }
-}
+    }
 
   /* Free virtual space */
-  mpshm_detach(&shm_yuv);
-  mpshm_detach(&shm_rgb);
-
+  mpshm_detach(&shm);
   return 0;
 }
 
