@@ -24,17 +24,8 @@
 #include "config_image.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Private Types
- ****************************************************************************/
-
-/****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
-
 static void nximage_redraw(NXWINDOW hwnd, FAR const struct nxgl_rect_s *rect,
                         bool more, FAR void *arg);
 static void nximage_position(NXWINDOW hwnd, FAR const struct nxgl_size_s *size,
@@ -43,78 +34,14 @@ static void nximage_position(NXWINDOW hwnd, FAR const struct nxgl_size_s *size,
                           FAR void *arg);
 
 /****************************************************************************
- * Private Data
- ****************************************************************************/
-
-/****************************************************************************
  * Public Data
  ****************************************************************************/
-
 /* Background window call table */
-
 const struct nx_callback_s g_nximagecb_aps_asmp =
 {
   nximage_redraw,   /* redraw */
   nximage_position  /* position */
 };
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: nximage_redraw
- *
- * Description:
- *   NX re-draw handler
- *
- ****************************************************************************/
-
-static void nximage_redraw(NXWINDOW hwnd, FAR const struct nxgl_rect_s *rect,
-                        bool more, FAR void *arg)
-{
-  ginfo("hwnd=%p rect={(%d,%d),(%d,%d)} more=%s\n",
-         hwnd, rect->pt1.x, rect->pt1.y, rect->pt2.x, rect->pt2.y,
-         more ? "true" : "false");
-}
-
-/****************************************************************************
- * Name: nximage_position
- *
- * Description:
- *   NX position change handler
- *
- ****************************************************************************/
-
-static void nximage_position(NXWINDOW hwnd, FAR const struct nxgl_size_s *size,
-                          FAR const struct nxgl_point_s *pos,
-                          FAR const struct nxgl_rect_s *bounds,
-                          FAR void *arg)
-{
-  /* Report the position */
-
-  ginfo("hwnd=%p size=(%d,%d) pos=(%d,%d) bounds={(%d,%d),(%d,%d)}\n",
-        hwnd, size->w, size->h, pos->x, pos->y,
-        bounds->pt1.x, bounds->pt1.y, bounds->pt2.x, bounds->pt2.y);
-
-  /* Have we picked off the window bounds yet? */
-
-  if (!g_nximage_aps_asmp.havepos)
-    {
-      /* Save the background window handle */
-
-      g_nximage_aps_asmp.hbkgd = hwnd;
-
-      /* Save the window limits */
-
-      g_nximage_aps_asmp.xres = bounds->pt2.x + 1;
-      g_nximage_aps_asmp.yres = bounds->pt2.y + 1;
-
-      g_nximage_aps_asmp.havepos = true;
-      sem_post(&g_nximage_aps_asmp.sem);
-      ginfo("Have xres=%d yres=%d\n", g_nximage_aps_asmp.xres, g_nximage_aps_asmp.yres);
-    }
-}
 
 /****************************************************************************
  * Public Functions
@@ -222,4 +149,60 @@ int apsamp_nximage_initialize(void)
          g_nximage_aps_asmp.xres, g_nximage_aps_asmp.yres);
 
   return 0;
+}
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: nximage_redraw
+ *
+ * Description:
+ *   NX re-draw handler
+ *
+ ****************************************************************************/
+static void nximage_redraw(NXWINDOW hwnd, FAR const struct nxgl_rect_s *rect,
+                        bool more, FAR void *arg)
+{
+  ginfo("hwnd=%p rect={(%d,%d),(%d,%d)} more=%s\n",
+         hwnd, rect->pt1.x, rect->pt1.y, rect->pt2.x, rect->pt2.y,
+         more ? "true" : "false");
+}
+
+/****************************************************************************
+ * Name: nximage_position
+ *
+ * Description:
+ *   NX position change handler
+ *
+ ****************************************************************************/
+static void nximage_position(NXWINDOW hwnd, FAR const struct nxgl_size_s *size,
+                          FAR const struct nxgl_point_s *pos,
+                          FAR const struct nxgl_rect_s *bounds,
+                          FAR void *arg)
+{
+  /* Report the position */
+
+  ginfo("hwnd=%p size=(%d,%d) pos=(%d,%d) bounds={(%d,%d),(%d,%d)}\n",
+        hwnd, size->w, size->h, pos->x, pos->y,
+        bounds->pt1.x, bounds->pt1.y, bounds->pt2.x, bounds->pt2.y);
+
+  /* Have we picked off the window bounds yet? */
+
+  if (!g_nximage_aps_asmp.havepos)
+    {
+      /* Save the background window handle */
+
+      g_nximage_aps_asmp.hbkgd = hwnd;
+
+      /* Save the window limits */
+
+      g_nximage_aps_asmp.xres = bounds->pt2.x + 1;
+      g_nximage_aps_asmp.yres = bounds->pt2.y + 1;
+
+      g_nximage_aps_asmp.havepos = true;
+      sem_post(&g_nximage_aps_asmp.sem);
+      ginfo("Have xres=%d yres=%d\n", g_nximage_aps_asmp.xres, g_nximage_aps_asmp.yres);
+    }
 }
