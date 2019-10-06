@@ -7,6 +7,7 @@
 
 #include "asmp.h"
 #include "include/aps_camera_asmp.h"
+#include "include/config_image_asmp.h"
 
 #define ASSERT(cond) if (!(cond)) wk_abort()
 
@@ -67,6 +68,8 @@ int main(void)
         strcopy(buf_yuv, helloworld);
         mpmutex_unlock(&mutex);
 
+        apsamp_main_yuv2rgb((void *)msgdata, SHMSIZE_IMAGE_YUV_SIZE);
+
         /* Send done message to supervisor */
         ret = mpmq_send(&mq, msgid, msgdata);
         ASSERT(ret == 0);
@@ -74,7 +77,7 @@ int main(void)
     else if (msgid == MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT)
       {
         /* Send done message to supervisor */
-        ret = mpmq_send(&mq, msgid, msgdata);
+        ret = mpmq_send(&mq, msgid, 0xcafec001);
         ASSERT(ret == 0);
         break;
       }

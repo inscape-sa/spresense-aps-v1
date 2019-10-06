@@ -34,6 +34,8 @@
 #include "color_proc_maincore.h"
 #include "color_camera_ctrl.h"
 
+#include "aps_camera_asmp.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -55,42 +57,14 @@ typedef struct apsamp_task_s {
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
-static int apsamp_send(mpmq_t *p_mq, int id, uint32_t *p_send);
+static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send);
 static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv);
 static int apsamp_task_init(apsamp_task *ptaskset);
 static void apsamp_task_fini(apsamp_task *ptaskset);
 
 /****************************************************************************
- * Private Functions
+ * main
  ****************************************************************************/
-static int camera_main_loop(int v_fd)
-{
-  int ret;
-  struct v4l2_buffer buf;
-  int loop;
-
-  for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
-    {
-      if (ret = apsamp_capdata_lock(v_fd, &buf))
-        {
-          printf("Fail DQBUF %d\n", errno);
-          return ret;
-        }
-
-      /* Convert YUV color format to RGB565 */
-      apsamp_main_yuv2rgb((void *)buf.m.userptr, buf.bytesused);
-      printf("|%d| BUF -> %p\n", loop, buf.m.userptr);
-      apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)buf.m.userptr);
-
-      if (ret = apsamp_capdata_release(v_fd, &buf))
-        {
-          printf("Fail QBUF %d\n", errno);
-          return ret;
-        }
-    }
-  return 0;
-}
-
 int aps_camera_asmp_main(int argc, char *argv[])
 {
   uint32_t send;
@@ -100,6 +74,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
   int v_fd;
   int loop;
   
+  struct v4l2_buffer buf;
   apsamp_task taskset;
 
   ret = apsamp_camera_init(&v_fd);
@@ -117,26 +92,39 @@ int aps_camera_asmp_main(int argc, char *argv[])
       err("mptask_exec() failure. %d\n", ret);
       return ret;
     }
-
-  ret = camera_main_loop(v_fd);
-  if (ret) {
-      printf("camera_main_loop: Failed at init\n");
-      return ERROR;
-    }
-  for (loop = 0; loop < 10; loop++)
-    {
-      apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, &send);
-      apsamp_receive(&taskset.mq, &recv);
-    }
   
-  /* Lock mutex for synchronize with worker after it's started */
-  mpmutex_lock(&taskset.mutex);
-  message("Worker said: %s\n", taskset.buf_yuv);
-  mpmutex_unlock(&taskset.mutex);
+  for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
+    {
+      if ((ret = apsamp_capdata_lock(v_fd, &buf) != 0))
+        {
+          printf("Fail DQBUF %d\n", errno);
+          return ERROR;
+        }
+
+      /* Convert YUV color format to RGB565 */
+      printf("|%02d| BUF -> %p\n", loop, buf.m.userptr);
+      //apsamp_main_yuv2rgb((void *)buf.m.userptr, buf.bytesused);
+
+      /* communication ASMP sub core*/
+      apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf.m.userptr);
+      apsamp_receive(&taskset.mq, &recv);
+      /* Lock mutex for synchronize with worker after it's started */
+      mpmutex_lock(&taskset.mutex);
+      message("|--|Worker said: %s\n", taskset.buf_yuv);
+      mpmutex_unlock(&taskset.mutex);
+
+      apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)buf.m.userptr);
+
+      if ((ret = apsamp_capdata_release(v_fd, &buf)) != 0)
+        {
+          printf("Fail QBUF %d\n", errno);
+          return ERROR;
+        }
+    }
  
   /* Show worker copied data */
   /* Send command to worker */
-  apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, &send);
+  apsamp_send(&taskset.mq, MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
   apsamp_receive(&taskset.mq, &recv);
 
   /* Destroy worker */
@@ -161,16 +149,16 @@ int aps_camera_asmp_main(int argc, char *argv[])
  * Private Functions
  ****************************************************************************/
 
-/***************************************************************/
-/* Task Messaging API
-/***************************************************************/
-static int apsamp_send(mpmq_t *p_mq, int id, uint32_t *p_send)
+/***************************************************************
+ * Task Messaging API
+ ***************************************************************/
+static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send)
 {
   int ret;
 
-  message("camera_main_loop: send = ID %d, data=%x\n", id, *p_send);
+  message("camera_main_loop: send = ID %d, data=%08x\n", id, send);
   /* Send command to worker */
-  ret = mpmq_send(p_mq, id, (uint32_t) &p_send);
+  ret = mpmq_send(p_mq, id, send);
   if (ret < 0)
     {
       err("mpmq_send() failure. %d\n", ret);
@@ -188,13 +176,13 @@ static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv)
       err("mpmq_recieve() failure. %d\n", id);
       return id;
     }
-  message("Worker response: ID = %d, data = %x\n", id, *p_recv); 
+  message("Worker response: ID = %d, data = %08x\n", id, *p_recv); 
   return OK;    
 }
 
-/***************************************************************/
-/* Task Generating API
-/***************************************************************/
+/***************************************************************
+ * Task Generating API
+ ***************************************************************/
 static int apsamp_task_init(apsamp_task *ptaskset)
 {
   int ret;
