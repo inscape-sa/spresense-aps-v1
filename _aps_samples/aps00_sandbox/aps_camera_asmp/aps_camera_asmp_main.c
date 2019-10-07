@@ -34,6 +34,7 @@
 #include "config_basic.h"
 #include "color_proc_maincore.h"
 #include "color_camera_ctrl.h"
+#include "profile_info.h"
 
 #include "aps_camera_asmp.h"
 
@@ -84,6 +85,8 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   int v_fd;
   int loop;
+  void *bufferlist[VIDEO_BUFNUM];
+  int bufnum = VIDEO_BUFNUM;
 #ifdef SINGLE_CORE_MODE
   struct v4l2_buffer buf;
 #else /* !SINGLE_CORE_MODE */
@@ -95,12 +98,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
   apsamp_task taskset;
 #endif /* SINGLE_CORE_MODE */  
 
-  ret = apsamp_camera_init(&v_fd);
-  if (ret)
-    {
-      printf("camera_main: Failed at init\n");
-      return ERROR;
-    }
+  alloc_buffer(bufferlist, bufnum);
 
 #ifdef SINGLE_CORE_MODE
   message("|--|Single Task Mode \n");
@@ -111,6 +109,12 @@ int aps_camera_asmp_main(int argc, char *argv[])
       apsamp_task_init_and_exec(&taskset, tid);
     } 
 #endif /* !SINGLE_CORE_MODE */    
+  ret = apsamp_camera_init(&v_fd, bufnum, bufferlist);
+  if (ret)
+    {
+      printf("camera_main: Failed at init\n");
+      return ERROR;
+    }
 
   print_tick();
 
@@ -160,8 +164,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
           message("|--|Worker(%d) said: %s\n", taskset.cpuid[prev_taskid], taskset.buf[prev_taskid]);
           mpmutex_unlock(&taskset.mutex[prev_taskid]);
 #endif
-          apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)recv); //(void *)buf[prev_taskid].m.userptr);
-
+          apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)taskset.buf[prev_taskid]);
           if ((ret = apsamp_capdata_release(v_fd, &buf[prev_taskid])) != 0)
             {
               printf("Fail QBUF %d\n", errno);
@@ -199,24 +202,14 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
+  free_buffer(bufferlist, bufnum);  
   return 0;
 }
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-/***************************************************************
- * Profiling API
- ***************************************************************/
-static void print_tick(void)
-{
-#if 1
-  int ret;
-  struct timespec ts;
-  ret = clock_systimespec(&ts);
-  printf("|--| %d.%06d sec\n", ts.tv_sec, ts.tv_nsec);
-#endif
-}
+
 
 #ifndef SINGLE_CORE_MODE
 /***************************************************************
@@ -308,7 +301,7 @@ static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
     }
 
   /* Initialize MP shared memory and bind it to MP task */
-  ret = mpshm_init(&ptaskset->shm[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM(ptaskset->cpuid[taskid]), SHMSIZE_IMAGE_YUV_SIZE);
+  ret = mpshm_init(&ptaskset->shm[taskid], APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM(ptaskset->cpuid[taskid]), SHMSIZE);
   if (ret < 0)
     {
       err("mpshm_init() failure. %d\n", ret);
@@ -329,7 +322,7 @@ static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid)
       return ret;
     }
   message("attached at %08x\n", (uintptr_t)ptaskset->buf[taskid]);
-  memset(ptaskset->buf[taskid], 0, SHMSIZE_IMAGE_YUV_SIZE);
+  memset(ptaskset->buf[taskid], 0, SHMSIZE);
 
   /* Run worker */
   ret = mptask_exec(&ptaskset->mptask[taskid]);

@@ -23,6 +23,7 @@
 #include "config_basic.h"
 #include "color_proc_maincore.h"
 #include "color_camera_ctrl.h"
+#include "profile_info.h"
 
 /****************************************************************************
  * Private Data
@@ -48,7 +49,9 @@ int camera_prepare(int             fd,
                 uint32_t           pixformat,
                 uint16_t           hsize,
                 uint16_t           vsize,
-                uint8_t            buffernum)
+                uint8_t            buffernum,
+                void*              bufferlist[]
+                )
 {
   int ret;
   int cnt;
@@ -100,7 +103,7 @@ int camera_prepare(int             fd,
       /* Note: VIDIOC_QBUF set buffer pointer. */
       /*       Buffer pointer must be 32bytes aligned. */
 
-      buffers[n_buffers].start  = memalign(32, IMAGE_YUV_SIZE);
+      buffers[n_buffers].start  = bufferlist[n_buffers];
       if (!buffers[n_buffers].start)
         {
           printf("Out of memory\n");
@@ -136,27 +139,46 @@ int camera_prepare(int             fd,
   return OK;
 }
 
-void free_buffer(v_buffer_t *buffers, uint8_t bufnum)
+void alloc_buffer(void *bufferlist[], uint8_t bufnum)
 {
   uint8_t cnt;
-  if (buffers)
+  if (bufferlist)
     {
       for (cnt = 0; cnt < bufnum; cnt++)
         {
-          if (buffers[cnt].start)
+          bufferlist[cnt] = memalign(32, IMAGE_YUV_SIZE);
+          if (!bufferlist[cnt])
             {
-              free(buffers[cnt].start);
+              printf("Out of memory at alloc_buffer[%d]\n", cnt);
+              return;
+            }
+          else 
+            {
+              printf("alloc_buffer[%d] <= 0x%08x\n", cnt, bufferlist[cnt]);
             }
         }
+    }
+}
 
-      free(buffers);
+void free_buffer(void *bufferlist[], uint8_t bufnum)
+{
+  uint8_t cnt;
+  if (bufferlist)
+    {
+      for (cnt = 0; cnt < bufnum; cnt++)
+        {
+          if (bufferlist[cnt])
+            {
+              free(bufferlist[cnt]);
+            }
+        }
     }
 }
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-int apsamp_camera_init(int *p_v_fd)
+int apsamp_camera_init(int *p_v_fd, uint8_t buffernum, void* bufferlist[])
 {
   int ret;
   int v_fd;
@@ -190,7 +212,8 @@ int apsamp_camera_init(int *p_v_fd)
                        V4L2_PIX_FMT_UYVY,
                        VIDEO_HSIZE_QVGA,
                        VIDEO_VSIZE_QVGA,
-                       VIDEO_BUFNUM);
+                       buffernum,
+                       bufferlist);
   if (ret < 0)
     {
       goto errout_with_buffer;
@@ -201,11 +224,8 @@ int apsamp_camera_init(int *p_v_fd)
 
 errout_with_buffer:
   close(v_fd);
-  free_buffer(buffers_video, VIDEO_BUFNUM);
-
 errout_with_video_init:
   video_uninitialize();
-
 errout_with_nx:
   nx_close(g_nximage_aps_asmp.hnx);
   return ERROR;
@@ -214,7 +234,6 @@ errout_with_nx:
 void apsamp_camera_fini(int *p_v_fd)
 {
   close(*p_v_fd);
-  free_buffer(buffers_video, VIDEO_BUFNUM);
   video_uninitialize();
   nx_close(g_nximage_aps_asmp.hnx);
 }

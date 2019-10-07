@@ -22,6 +22,7 @@
 
 #include "nximage.h"
 #include "config_image.h"
+#include "profile_info.h"
 
 /****************************************************************************
  * Private Function Prototypes

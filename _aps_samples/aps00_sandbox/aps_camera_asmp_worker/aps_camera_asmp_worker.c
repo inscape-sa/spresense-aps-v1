@@ -49,7 +49,7 @@ int main(void)
   ASSERT(ret == 0);
 
   /* Initialize MP shared memory */
-  ret = mpshm_init(&shm, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM(cpuid), SHMSIZE_IMAGE_YUV_SIZE);
+  ret = mpshm_init(&shm, APS00_SANDBOX_APS_CAMERA_ASMPKEY_SHM(cpuid), SHMSIZE);
   ASSERT(ret == 0);
 
   /* Map shared memory to virtual space */
@@ -68,7 +68,7 @@ int main(void)
         strcopy(buf, helloworld);
         mpmutex_unlock(&mutex);
 #endif
-        apsamp_main_yuv2rgb((void *)msgdata, SHMSIZE_IMAGE_YUV_SIZE);
+        apsamp_main_yuv2rgb((void *)msgdata, buf, IMAGE_YUV_SIZE);
 
         /* Send done message to supervisor */
         ret = mpmq_send(&mq, msgid, msgdata);
