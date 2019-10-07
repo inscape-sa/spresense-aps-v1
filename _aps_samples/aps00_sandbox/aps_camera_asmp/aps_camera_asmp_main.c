@@ -41,40 +41,42 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-//#define SINGLE_CORE_MODE
+//#define DISABLE_DUALBUFFRING
 
-#ifndef SINGLE_CORE_MODE
+#ifndef DISABLE_DUALBUFFRING
 #define MAX_TASKS (2)
-#endif /* !SINGLE_CORE_MODE */
+#endif /* !DISABLE_DUALBUFFRING */
 
 /****************************************************************************
  * Private Types
  ****************************************************************************/
-#ifndef SINGLE_CORE_MODE
+#ifndef DISABLE_DUALBUFFRING
 typedef struct apsamp_task_s {
   mptask_t mptask[MAX_TASKS];
   mpmutex_t mutex[MAX_TASKS];
   mpmq_t mq[MAX_TASKS];
   mpshm_t shm[MAX_TASKS];
-  char *buf[MAX_TASKS];
+  void *buf[MAX_TASKS];
   int cpuid[MAX_TASKS];
   int wret[MAX_TASKS];
 } apsamp_task;
-#endif /* !SINGLE_CORE_MODE */
+#endif /* !DISABLE_DUALBUFFRING */
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+struct timespec start_tick;
+struct timespec end_tick;
 
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
-#ifndef SINGLE_CORE_MODE
+#ifndef DISABLE_DUALBUFFRING
 static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send);
 static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv);
 static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid);
 static void apsamp_task_fini(apsamp_task *ptaskset, int taskid);
-#endif /* !SINGLE_CORE_MODE */
-
-static void print_tick(void);
-
-
+#endif /* !DISABLE_DUALBUFFRING */
 
 /****************************************************************************
  * main
@@ -87,28 +89,31 @@ int aps_camera_asmp_main(int argc, char *argv[])
   int loop;
   void *bufferlist[VIDEO_BUFNUM];
   int bufnum = VIDEO_BUFNUM;
-#ifdef SINGLE_CORE_MODE
+#ifdef DISABLE_DUALBUFFRING
   struct v4l2_buffer buf;
-#else /* !SINGLE_CORE_MODE */
+#else /* !DISABLE_DUALBUFFRING */
   int tid;
   int curr_taskid = 0;
   int prev_taskid = 0;
   struct v4l2_buffer buf[2];
   uint32_t recv;
   apsamp_task taskset;
-#endif /* SINGLE_CORE_MODE */  
+#endif /* DISABLE_DUALBUFFRING */  
 
+
+#ifdef DISABLE_DUALBUFFRING
+  message("|--|Single Task Mode (only Single-Buffer) \n");
+  bufnum = 1;
   alloc_buffer(bufferlist, bufnum);
-
-#ifdef SINGLE_CORE_MODE
-  message("|--|Single Task Mode \n");
-#else /* SINGLE_CORE_MODE */
-  message("|--|Multi Task Mode (%d)\n", MAX_TASKS);
+#else /* DISABLE_DUALBUFFRING */
+  message("|--|Multi Task Mode  (enable Dual-Buffering, %dTASKS)\n", MAX_TASKS);
+  bufnum = MAX_TASKS;
+  alloc_buffer(bufferlist, bufnum);
   for (tid = 0; tid < MAX_TASKS; tid++)
     {
       apsamp_task_init_and_exec(&taskset, tid);
     } 
-#endif /* !SINGLE_CORE_MODE */    
+#endif /* !DISABLE_DUALBUFFRING */    
   ret = apsamp_camera_init(&v_fd, bufnum, bufferlist);
   if (ret)
     {
@@ -116,9 +121,9 @@ int aps_camera_asmp_main(int argc, char *argv[])
       return ERROR;
     }
 
-  print_tick();
+  print_tick(&start_tick);
 
-#ifdef SINGLE_CORE_MODE
+#ifdef DISABLE_DUALBUFFRING
   for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
     {
       if ((ret = apsamp_capdata_lock(v_fd, &buf) != 0))
@@ -134,7 +139,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
           return ERROR;
         }
     }
-#else /* SINGLE_CORE_MODE */
+#else /* DISABLE_DUALBUFFRING */
   curr_taskid = 0;
   prev_taskid = -1;
   for (loop = 0; loop <= DEFAULT_REPEAT_NUM; loop++)
@@ -164,12 +169,12 @@ int aps_camera_asmp_main(int argc, char *argv[])
           message("|--|Worker(%d) said: %s\n", taskset.cpuid[prev_taskid], taskset.buf[prev_taskid]);
           mpmutex_unlock(&taskset.mutex[prev_taskid]);
 #endif
-          apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)taskset.buf[prev_taskid]);
           if ((ret = apsamp_capdata_release(v_fd, &buf[prev_taskid])) != 0)
             {
               printf("Fail QBUF %d\n", errno);
               return ERROR;
             }
+          apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)taskset.buf[prev_taskid]);
         } 
 
       if (curr_taskid == 0)
@@ -185,24 +190,34 @@ int aps_camera_asmp_main(int argc, char *argv[])
           curr_taskid = -1;
         }
     }
-#endif /* !SINGLE_CORE_MODE */
+#endif /* !DISABLE_DUALBUFFRING */
 
-  print_tick();
-
-#ifndef SINGLE_CORE_MODE
+  print_tick(&end_tick);
+ 
+#ifndef DISABLE_DUALBUFFRING
   for (tid = 0; tid < MAX_TASKS; tid++)
     { 
       /* Show worker copied data */
       /* Send command to worker */
       apsamp_send(&taskset.mq[tid], MSG_ID_APS00_SANDBOX_APS_CAMERA_EXIT, 0xdeadbeef);
       apsamp_receive(&taskset.mq[tid], &recv);
-      apsamp_task_fini(&taskset, tid);
     }
-#endif /* !SINGLE_CORE_MODE */
+#endif /* !DISABLE_DUALBUFFRING */
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
+
+#ifndef DISABLE_DUALBUFFRING
+  for (tid = 0; tid < MAX_TASKS; tid++)
+    { 
+      apsamp_task_fini(&taskset, tid);
+    }
+#endif /* DISABLE_DUALBUFFRING */
+
   free_buffer(bufferlist, bufnum);  
+
+  diff_tick(&start_tick, &end_tick, DEFAULT_REPEAT_NUM);
+
   return 0;
 }
 
@@ -211,7 +226,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
  ****************************************************************************/
 
 
-#ifndef SINGLE_CORE_MODE
+#ifndef DISABLE_DUALBUFFRING
 /***************************************************************
  * Task Messaging API
  ***************************************************************/
@@ -360,4 +375,4 @@ static void apsamp_task_fini(apsamp_task *ptaskset, int taskid)
   return;
 }
 
-#endif /* !SINGLE_CORE_MODE */
+#endif /* !DISABLE_DUALBUFFRING */

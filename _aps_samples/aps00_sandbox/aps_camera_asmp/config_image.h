@@ -7,7 +7,7 @@
 /* Note: Buffer size must be multiple of 32. */
 #define IMAGE_YUV_SIZE     (320*240*2) /* QVGA YUV422 */
 #define VIDEO_BUFNUM       (3)
-#define DEFAULT_REPEAT_NUM (100)
+#define DEFAULT_REPEAT_NUM (300)
 #ifndef CONFIG_EXAMPLES_CAMERA_LCD_DEVNO
 #  define CONFIG_EXAMPLES_CAMERA_LCD_DEVNO 0
 #endif
