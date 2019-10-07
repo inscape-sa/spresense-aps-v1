@@ -98,7 +98,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   curr_taskid = 0;
   prev_taskid = -1;
-  for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
+  for (loop = 0; loop <= DEFAULT_REPEAT_NUM; loop++)
     {
       if (curr_taskid >= 0) 
         {      
@@ -142,11 +142,13 @@ int aps_camera_asmp_main(int argc, char *argv[])
           prev_taskid = curr_taskid;
           curr_taskid = 0;
         }
-      if (loop >= DEFAULT_REPEAT_NUM)
+      if (loop >= (DEFAULT_REPEAT_NUM - 1))
         {
           curr_taskid = -1;
         }
     }
+  
+  print_tick();
 
   for (tid = 0; tid < MAX_TASKS; tid++)
     { 
@@ -159,7 +161,6 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
-  print_tick();
   return 0;
 }
 
