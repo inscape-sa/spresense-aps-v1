@@ -17,6 +17,7 @@
 
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
+#include <nuttx/clock.h>
 #include <nuttx/fs/mkfatfs.h>
 #include "video/video.h"
 
@@ -40,6 +41,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 #define MAX_TASKS (2)
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -60,6 +62,9 @@ static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send);
 static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv);
 static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid);
 static void apsamp_task_fini(apsamp_task *ptaskset, int taskid);
+static void print_tick(void);
+
+
 
 /****************************************************************************
  * main
@@ -77,7 +82,6 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   struct v4l2_buffer buf[2];
   apsamp_task taskset;
-
   ret = apsamp_camera_init(&v_fd);
   if (ret)
     {
@@ -89,7 +93,9 @@ int aps_camera_asmp_main(int argc, char *argv[])
     {
       apsamp_task_init_and_exec(&taskset, tid);
     } 
-  
+
+  print_tick();
+
   curr_taskid = 0;
   prev_taskid = -1;
   for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
@@ -102,7 +108,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
               return ERROR;
             }
           /* Convert YUV color format to RGB565 */
-          printf("|%02d| BUF -> %p\n", loop, buf[curr_taskid].m.userptr);
+          //printf("|%02d| BUF -> %p\n", loop, buf[curr_taskid].m.userptr);
           //apsamp_main_yuv2rgb((void *)buf[curr_taskid].m.userptr, buf[curr_taskid].bytesused);
           /* communication ASMP sub core*/
           apsamp_send(&taskset.mq[curr_taskid], MSG_ID_APS00_SANDBOX_APS_CAMERA_ASMP, (uint32_t)buf[curr_taskid].m.userptr);
@@ -112,7 +118,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
         {
           /* communication ASMP sub core*/
           apsamp_receive(&taskset.mq[prev_taskid], &recv);
-          printf("|%02d| BUF <- %p\n", loop, recv);
+          //printf("|%02d| BUF <- %p\n", loop, recv);
           /* Lock mutex for synchronize with worker after it's started */
 #if 0
           mpmutex_lock(&taskset.mutex[prev_taskid]);
@@ -153,13 +159,25 @@ int aps_camera_asmp_main(int argc, char *argv[])
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
-
+  print_tick();
   return 0;
 }
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+/***************************************************************
+ * Profiling API
+ ***************************************************************/
+static void print_tick(void)
+{
+#if 1
+  int ret;
+  struct timespec ts;
+  ret = clock_systimespec(&ts);
+  printf("|--| %d.%06d sec\n", ts.tv_sec, ts.tv_nsec);
+#endif
+}
 
 /***************************************************************
  * Task Messaging API

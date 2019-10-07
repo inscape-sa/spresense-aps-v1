@@ -54,7 +54,7 @@ static inline uint16_t ycbcrtorgb565(uint8_t y, uint8_t cb, uint8_t cr)
 }
 
 /* Color conversion to show on display devices. */
-void apsamp_main_yuv2rgb(void *buf, uint32_t size)
+void apsamp_main_yuv2rgb(void *buf, int size)
 {
   struct uyvy_s *ptr;
   struct uyvy_s uyvy;
