@@ -40,11 +40,16 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+//#define SINGLE_CORE_MODE
+
+#ifndef SINGLE_CORE_MODE
 #define MAX_TASKS (2)
+#endif /* !SINGLE_CORE_MODE */
 
 /****************************************************************************
  * Private Types
  ****************************************************************************/
+#ifndef SINGLE_CORE_MODE
 typedef struct apsamp_task_s {
   mptask_t mptask[MAX_TASKS];
   mpmutex_t mutex[MAX_TASKS];
@@ -54,14 +59,18 @@ typedef struct apsamp_task_s {
   int cpuid[MAX_TASKS];
   int wret[MAX_TASKS];
 } apsamp_task;
+#endif /* !SINGLE_CORE_MODE */
 
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
+#ifndef SINGLE_CORE_MODE
 static int apsamp_send(mpmq_t *p_mq, int id, uint32_t send);
 static int apsamp_receive(mpmq_t *p_mq, uint32_t *p_recv);
 static int apsamp_task_init_and_exec(apsamp_task *ptaskset, int taskid);
 static void apsamp_task_fini(apsamp_task *ptaskset, int taskid);
+#endif /* !SINGLE_CORE_MODE */
+
 static void print_tick(void);
 
 
@@ -71,17 +80,21 @@ static void print_tick(void);
  ****************************************************************************/
 int aps_camera_asmp_main(int argc, char *argv[])
 {
-  uint32_t recv;
   int ret;
 
   int v_fd;
   int loop;
+#ifdef SINGLE_CORE_MODE
+  struct v4l2_buffer buf;
+#else /* !SINGLE_CORE_MODE */
   int tid;
   int curr_taskid = 0;
   int prev_taskid = 0;
-
   struct v4l2_buffer buf[2];
+  uint32_t recv;
   apsamp_task taskset;
+#endif /* SINGLE_CORE_MODE */  
+
   ret = apsamp_camera_init(&v_fd);
   if (ret)
     {
@@ -89,13 +102,35 @@ int aps_camera_asmp_main(int argc, char *argv[])
       return ERROR;
     }
 
+#ifdef SINGLE_CORE_MODE
+  message("|--|Single Task Mode \n");
+#else /* SINGLE_CORE_MODE */
+  message("|--|Multi Task Mode (%d)\n", MAX_TASKS);
   for (tid = 0; tid < MAX_TASKS; tid++)
     {
       apsamp_task_init_and_exec(&taskset, tid);
     } 
+#endif /* !SINGLE_CORE_MODE */    
 
   print_tick();
 
+#ifdef SINGLE_CORE_MODE
+  for (loop = 0; loop < DEFAULT_REPEAT_NUM; loop++)
+    {
+      if ((ret = apsamp_capdata_lock(v_fd, &buf) != 0))
+        {
+          printf("Fail DQBUF %d\n", errno);
+          return ERROR;
+        }
+      apsamp_main_yuv2rgb((void *)buf.m.userptr, buf.bytesused);
+      apsamp_nximage_image(g_nximage_aps_asmp.hbkgd, (void *)buf.m.userptr);
+      if ((ret = apsamp_capdata_release(v_fd, &buf)) != 0)
+        {
+          printf("Fail QBUF %d\n", errno);
+          return ERROR;
+        }
+    }
+#else /* SINGLE_CORE_MODE */
   curr_taskid = 0;
   prev_taskid = -1;
   for (loop = 0; loop <= DEFAULT_REPEAT_NUM; loop++)
@@ -147,9 +182,11 @@ int aps_camera_asmp_main(int argc, char *argv[])
           curr_taskid = -1;
         }
     }
-  
+#endif /* !SINGLE_CORE_MODE */
+
   print_tick();
 
+#ifndef SINGLE_CORE_MODE
   for (tid = 0; tid < MAX_TASKS; tid++)
     { 
       /* Show worker copied data */
@@ -158,6 +195,7 @@ int aps_camera_asmp_main(int argc, char *argv[])
       apsamp_receive(&taskset.mq[tid], &recv);
       apsamp_task_fini(&taskset, tid);
     }
+#endif /* !SINGLE_CORE_MODE */
 
   /* Finalize all of MP objects */
   apsamp_camera_fini(&v_fd);
@@ -180,6 +218,7 @@ static void print_tick(void)
 #endif
 }
 
+#ifndef SINGLE_CORE_MODE
 /***************************************************************
  * Task Messaging API
  ***************************************************************/
@@ -327,3 +366,5 @@ static void apsamp_task_fini(apsamp_task *ptaskset, int taskid)
 
   return;
 }
+
+#endif /* !SINGLE_CORE_MODE */
