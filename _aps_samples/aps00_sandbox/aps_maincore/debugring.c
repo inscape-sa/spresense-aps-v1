@@ -83,7 +83,7 @@ int enqueue_debugring(int param, void *buf, int len)
             pDRing->ring[put_pos].addr = &pDRing->memPool[put_pos];
             len = (len > SIZE_DEBUGRING_MEMPOOL)? SIZE_DEBUGRING_MEMPOOL : len;
             pDRing->ring[put_pos].size = len;
-            copymemory((int *)&pDRing->memPool[put_pos], (const int *)buf, len);
+            copymemory((char *)&pDRing->memPool[put_pos], (const char *)buf, len);
         } else {
             pDRing->ring[put_pos].addr = NULL;
             pDRing->ring[put_pos].size = 0;
@@ -114,7 +114,7 @@ int dequeue_debugring(sDebugRingItem *getItem, void *buf, int len)
                 /* buffer had been not unused */
             } else {
                 len = (len > SIZE_DEBUGRING_MEMPOOL)? SIZE_DEBUGRING_MEMPOOL : len;
-                copymemory((int *)buf, (const int *)getItem->addr, len);
+                copymemory((char *)buf, (const char *)getItem->addr, len);
             }
         }
     }
