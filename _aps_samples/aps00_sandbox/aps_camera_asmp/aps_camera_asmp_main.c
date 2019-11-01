@@ -41,7 +41,7 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-//#define DISABLE_DUALBUFFRING
+#define DISABLE_DUALBUFFRING
 
 #ifndef DISABLE_DUALBUFFRING
 #define MAX_TASKS (2)
