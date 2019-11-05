@@ -8,7 +8,6 @@
 #include <fcntl.h>
 #include <time.h>
 #include <semaphore.h>
-#include <debugring.h>
 
 /* test routine */
 extern void test_debugring(void);
@@ -18,7 +17,5 @@ int aps_maincore_main(int argc, char *argv[])
 {
   int ret;
   printf("Hello, World. by aps_maincore\n");
-  test_debugring();
-
   return 0;
 }

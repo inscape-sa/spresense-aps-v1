@@ -8,6 +8,13 @@
 #include <asmp/mpmq.h>
 #include <asmp/mpmutex.h>
 
+/** ------------------------
+ * for Debug-Rings
+ * ------------------------- */
+#include <debugring.h>
+/* test routine */
+extern void test_debugring(void *buf);
+
 /* Include worker header */
 #include "aps_multicore.h"
 
@@ -108,8 +115,10 @@ int aps_multicore_main(int argc, char *argv[])
   message("attached at %08x\n", (uintptr_t)buf);
   memset(buf, 0, 1024);
 
-  /* Run worker */
+  /* test Debug-Rings */
+  test_debugring(buf);
 
+  /* Run worker */
   ret = mptask_exec(&mptask);
   if (ret < 0)
     {

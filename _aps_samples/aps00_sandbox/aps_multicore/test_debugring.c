@@ -21,7 +21,7 @@ static int _local_strlen(char *str);
  * - but, these function have to be defined in user-code.
  * -------------------------------------- */
 /** Ring Buffer Test */
-void test_debugring(void)
+void test_debugring(void *buf)
 {
     int ret;
     char set_buf[] = "Test Test Test";
@@ -29,14 +29,12 @@ void test_debugring(void)
     char get_buf[get_buf_len];
     sDebugRingItem getitem;
     int set_len;
-    char *test_memory;
     
     int loop;
     const int num_test = 100;
-    test_memory = memalign(TOTALSIZE_DEBUGRING_USED);
 
-    ret = init_debugring(test_memory);
-    dbgprintf("ret(%d) = init_debugring(on 0x%08x)\n", ret, test_memory);
+    ret = init_debugring(buf);
+    dbgprintf("ret(%d) = init_debugring(on 0x%08x)\n", ret, buf);
     set_len = _local_strlen(set_buf) + 1;
 
     for (loop = 0; loop < num_test; loop++)   
@@ -64,7 +62,6 @@ void test_debugring(void)
         dbgprintf("dequeue(RET=%d, CPUID=%d, PARAM=0x%x, buf[%s][%s])\n", ret, getitem.cpuid, getitem.param, get_buf, set_buf);
     }
 
-    free(test_memory);
     return;
 }
 
