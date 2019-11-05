@@ -47,17 +47,6 @@ int init_debugring(void* buf)
     int ret = 0;
     myCpuId = 0;
     pDRing = (sDebugRing*)buf; 
-
-#if 0
-sDebugRingHead *pRingHeader;
-sDebugRingItem *pRing;
-sDebugMemPool *pMemPool;
-    pRingHeader = mshr + OFFSET_DEBUGRING_HEAD;
-    pRing = mshr + OFFSET_DEBUGRING_RING;
-    pMemPool = mshr + OFFSET_DEBUGRING_MEMPOOL;
-#endif 
-    printf("ret = %d\n", ret);
-
     pDRing->header.head = 0;
     pDRing->header.tail = 0;
     return ret;

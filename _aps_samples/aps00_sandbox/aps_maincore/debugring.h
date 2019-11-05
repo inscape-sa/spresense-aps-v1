@@ -2,8 +2,9 @@
 #define _DEBUGRING_H_
 
 /* Ring Size */
-#define SIZE_DEBUGRING_MEMPOOL      (1024)  /* 1KB */
-#define NUM_DEBUGRING_ITEMS         (48)    /* 48 entries */
+#define SIZE_DEBUGRING_MEMPOOL      (1024)      /* 1KB */
+#define NUM_DEBUGRING_ITEMS         (48)        /* 48 entries */
+#define TOTALSIZE_DEBUGRING_USED    (64*1024)   /* 64KB */
 
 /** Ring Buffer Structs Definitions */
 typedef struct _s_debugring_head {
