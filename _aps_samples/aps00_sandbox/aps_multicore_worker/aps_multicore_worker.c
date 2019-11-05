@@ -8,7 +8,7 @@
 #include "asmp.h"
 #include "include/aps_multicore.h"
 /* test routine */
-extern void test_debugring(void *buf);
+extern void test_debugring(void *buf, mpmutex_t *pmutex);
 
 #define ASSERT(cond) if (!(cond)) wk_abort()
 
@@ -59,7 +59,7 @@ int main(void)
   ret = mpmq_receive(&mq, &msgdata);
   ASSERT(ret == MSG_ID_APS_MULTICORE);
 
-  test_debugring(((void*)buf + (64 * 1024)));
+  test_debugring(((void*)buf + (64 * 1024)), &mutex);
 
   /* Copy hello message to shared memory */
 

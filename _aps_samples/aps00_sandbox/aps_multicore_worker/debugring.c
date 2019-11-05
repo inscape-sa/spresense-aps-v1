@@ -30,25 +30,28 @@ static void copymemory(char *dst, const char*src, int size);
 /** lock Wrapper */
 static inline void __mutex_lock(void)
 {
-    /* NOP */
+    mpmutex_lock(pDRing->header.pmutex);
 }
 
 /** unlock Wrapper */
 static inline void __mutex_unlock(void)
 {
-    /* NOP */
+    mpmutex_unlock(pDRing->header.pmutex);
 }
 
 /** ------------------------------------- *
  * Public Functions
  * -------------------------------------- */
-int init_debugring(void* buf)
+int init_debugring(void* buf, mpmutex_t *pmutex, bool master)
 {
     int ret = 0;
     myCpuId = 0;
-    pDRing = (sDebugRing*)buf; 
-    pDRing->header.head = 0;
-    pDRing->header.tail = 0;
+    pDRing = (sDebugRing*)buf;
+    pDRing->header.pmutex = pmutex; 
+    if (master == true) {
+        pDRing->header.head = 0;
+        pDRing->header.tail = 0;
+    }
     return ret;
 }
 

@@ -1,6 +1,12 @@
 #ifndef _DEBUGRING_H_
 #define _DEBUGRING_H_
 
+#include <asmp/asmp.h>
+#include <asmp/mptask.h>
+#include <asmp/mpshm.h>
+#include <asmp/mpmq.h>
+#include <asmp/mpmutex.h>
+
 /* Ring Size */
 #define SIZE_DEBUGRING_MEMPOOL      (1024)      /* 1KB */
 #define NUM_DEBUGRING_ITEMS         (48)        /* 48 entries */
@@ -10,7 +16,7 @@
 typedef struct _s_debugring_head {
     int head;
     int tail;
-    int _reserved_0;
+    mpmutex_t *pmutex;
     int _reserved_1;    
 } sDebugRingHead;
 
@@ -34,7 +40,7 @@ typedef struct s_debugring {
 } sDebugRing;
 
 /* Public Method Definitions */
-int init_debugring(void *buf);
+int init_debugring(void* buf, mpmutex_t *pmutex, bool master);
 int enqueue_debugring(int param, void *buf, int len);
 int dequeue_debugring(sDebugRingItem *getItem, void *buf, int len);
 

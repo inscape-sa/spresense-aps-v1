@@ -16,7 +16,7 @@
 #include "debugring.h"
 
 /* test routine */
-extern void test_debugring(void *buf);
+extern void test_debugring(void *buf, mpmutex_t *pmutex);
 
 /* Worker ELF path */
 #define WORKER_FILE "/mnt/spif/aps_multicore"
@@ -115,8 +115,6 @@ int aps_multicore_main(int argc, char *argv[])
   message("attached at %08x\n", (uintptr_t)buf);
   memset(buf, 0, 1024);
 
-  /* test Debug-Rings */
-  test_debugring(buf);
 
   /* Run worker */
   ret = mptask_exec(&mptask);
@@ -125,6 +123,9 @@ int aps_multicore_main(int argc, char *argv[])
       err("mptask_exec() failure. %d\n", ret);
       return ret;
     }
+
+  /* test Debug-Rings */
+  test_debugring(buf, &mutex);
 
   /* Send command to worker */
   ret = mpmq_send(&mq, MSG_ID_APS_MULTICORE, (uint32_t) &data);

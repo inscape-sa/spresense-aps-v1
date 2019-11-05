@@ -21,7 +21,7 @@ static int _local_strlen(char *str);
  * - but, these function have to be defined in user-code.
  * -------------------------------------- */
 /** Ring Buffer Test */
-void test_debugring(void *buf)
+void test_debugring(void *buf, mpmutex_t *pmutex)
 {
     int ret;
     char set_buf[] = "Test Test Test";
@@ -33,7 +33,7 @@ void test_debugring(void *buf)
     int loop;
     const int num_test = 100;
 
-    ret = init_debugring(buf);
+    ret = init_debugring(buf, pmutex, true);
     dbgprintf("ret(%d) = init_debugring(on 0x%08x)\n", ret, buf);
     set_len = _local_strlen(set_buf) + 1;
 
