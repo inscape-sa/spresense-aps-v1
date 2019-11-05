@@ -11,12 +11,12 @@
 /** ------------------------
  * for Debug-Rings
  * ------------------------- */
-#include <debugring.h>
-/* test routine */
-extern void test_debugring(void *buf);
-
 /* Include worker header */
 #include "aps_multicore.h"
+#include "debugring.h"
+
+/* test routine */
+extern void test_debugring(void *buf);
 
 /* Worker ELF path */
 #define WORKER_FILE "/mnt/spif/aps_multicore"
