@@ -29,6 +29,16 @@
 #define message(format, ...)    printf(format, ##__VA_ARGS__)
 #define err(format, ...)        fprintf(stderr, format, ##__VA_ARGS__)
 
+/** ----------------------------------------- *
+ * prototype difinitions
+ * ------------------------------------------ */
+static int req_subcore_enqueue(mpmq_t *pmq, mpmutex_t *pmutex, char *buf);
+static int req_subcore_dequeue(mpmq_t *pmq, mpmutex_t *pmutex, char *buf);
+static int req_subcore_quit(mpmq_t *pmq, mpmutex_t *pmutex, char *buf);
+
+/** ----------------------------------------- *
+ * public functions
+ * ------------------------------------------ */
 int aps_multicore_main(int argc, char *argv[])
 {
   mptask_t mptask;
@@ -40,8 +50,13 @@ int aps_multicore_main(int argc, char *argv[])
   char putData[] = "GETDATA";
   int ret, wret;
   char *buf;
+  
+  int large_loop;
+  int small_loop;
 
-  /* Initialize MP task */
+  /** ------------------------------------- *
+   * Initialize MP task 
+   * -------------------------------------- */
 
   ret = mptask_init(&mptask, WORKER_FILE);
   if (ret != 0)
@@ -122,35 +137,19 @@ int aps_multicore_main(int argc, char *argv[])
       return ret;
     }
 
-  
-  int large_count;
-  for (large_count = 0; large_count < 10; large_count++) {
-    int loop;
-    for (loop = 0; loop < 10; loop++) {
-      /* Send command to worker */
-      data = QUEUEITEM_ID_REQ_ENQUEUE;
-      ret = mpmq_send(&mq, MSG_ID_APS_MULTICORE, (uint32_t)data);
-      if (ret < 0)
-        {
-          err("mpmq_send() failure. %d\n", ret);
-          return ret;
-        }
+  /** ------------------------------------- *
+   * Test Original-Queue (Maincore from/to Subcore) 
+   * -------------------------------------- */
 
-      /* Wait for worker message */
-      ret = mpmq_receive(&mq, &msgdata);
-      if (ret < 0)
-        {
-          err("mpmq_recieve() failure. %d\n", ret);
-          return ret;
-        }
-      message("Worker response: ID = %d\n", ret);
-      /* Lock mutex for synchronize with worker after it's started */
-      mpmutex_lock(&mutex);
-      message("Worker said: %s\n", buf);
-      mpmutex_unlock(&mutex);
+  for (large_loop = 0; large_loop < 10; large_loop++) {
+    for (small_loop = 0; small_loop < 10; small_loop++) {
+      ret = req_subcore_enqueue(&mq, &mutex, buf);
+      if (ret < 0) {
+        err("req_subcore_enqueue() failure. %d\n", ret);
+        return ret;
+      }
     }
-
-    for (loop = 0; loop < 10; loop++) {
+    for (small_loop = 0; small_loop < 13; small_loop++) {
       sDebugRingItem getItem;
       int ret;
       char buf[64];
@@ -161,38 +160,22 @@ int aps_multicore_main(int argc, char *argv[])
         getItem.cpuid, getItem.param, buf);
     }
 
-    for (loop = 0; loop < 10; loop++) {
+    for (small_loop = 0; small_loop < 10; small_loop++) {
       sDebugRingItem getItem;
       int ret;
       char buf[64];
       sDebugRing *pDRing = get_debugring_addr();
-      ret = enqueue_debugring(loop, putData, 8);
+      ret = enqueue_debugring(small_loop, putData, 8);
       message("Dequeue on Main<RET=%d|H=%d|T=%d> from MainCore\n",
         ret, pDRing->header.head, pDRing->header.tail);
     }
 
-    for (loop = 0; loop < 10; loop++) {
-      /* Send command to worker */
-      data = QUEUEITEM_ID_REQ_DEQUEUE;
-      ret = mpmq_send(&mq, MSG_ID_APS_MULTICORE, (uint32_t)data);
-      if (ret < 0)
-        {
-          err("mpmq_send() failure. %d\n", ret);
-          return ret;
-        }
-
-      /* Wait for worker message */
-      ret = mpmq_receive(&mq, &msgdata);
-      if (ret < 0)
-        {
-          err("mpmq_recieve() failure. %d\n", ret);
-          return ret;
-        }
-      message("Worker response: ID = %d\n", ret);
-      /* Lock mutex for synchronize with worker after it's started */
-      mpmutex_lock(&mutex);
-      message("Worker said: %s\n", buf);
-      mpmutex_unlock(&mutex);
+    for (small_loop = 0; small_loop < 13; small_loop++) {
+      ret = req_subcore_dequeue(&mq, &mutex, buf);
+      if (ret < 0) {
+        err("req_subcore_dequeue() failure. %d\n", ret);
+        return ret;
+      }
     }
 
     {
@@ -202,33 +185,12 @@ int aps_multicore_main(int argc, char *argv[])
         pDRing->header.head, pDRing->header.tail);
     }
   }
-  {
-    int loop;
-    for (loop = 0; loop < 1; loop++) {
-      /* Send command to worker */
-      data = QUEUEITEM_ID_REQ_QUIT;
-      ret = mpmq_send(&mq, MSG_ID_APS_MULTICORE, (uint32_t)data);
-      if (ret < 0)
-        {
-          err("mpmq_send() failure. %d\n", ret);
-          return ret;
-        }
 
-      /* Wait for worker message */
-      ret = mpmq_receive(&mq, &msgdata);
-      if (ret < 0)
-        {
-          err("mpmq_recieve() failure. %d\n", ret);
-          return ret;
-        }
-      message("Worker response: ID = %d\n", ret);
-      /* Lock mutex for synchronize with worker after it's started */
-      mpmutex_lock(&mutex);
-      message("Worker said: %s\n", buf);
-      mpmutex_unlock(&mutex);
-    }
+  ret = req_subcore_quit(&mq, &mutex, buf);
+  if (ret < 0) {
+    err("req_subcore_quit() failure. %d\n", ret);
+    return ret;
   }
-  
 
   /* Destroy worker */
   wret = -1;
@@ -247,6 +209,103 @@ int aps_multicore_main(int argc, char *argv[])
   mpshm_destroy(&shm);
   mpmutex_destroy(&mutex);
   mpmq_destroy(&mq);
+
+  return 0;
+}
+
+
+/** ----------------------------------------- *
+ * static functions
+ * ------------------------------------------ */
+static int req_subcore_enqueue(mpmq_t *pmq, mpmutex_t *pmutex, char *buf)
+{ 
+  int ret;
+  uint32_t msgdata;
+  int data = 0x1234;
+
+  /* Send command to worker */
+  data = QUEUEITEM_ID_REQ_ENQUEUE;
+  ret = mpmq_send(pmq, MSG_ID_APS_MULTICORE, (uint32_t)data);
+  if (ret < 0)
+    {
+      err("mpmq_send() failure. %d\n", ret);
+      return ret;
+    }
+
+  /* Wait for worker message */
+  ret = mpmq_receive(pmq, &msgdata);
+  if (ret < 0)
+    {
+      err("mpmq_recieve() failure. %d\n", ret);
+      return ret;
+    }
+  message("Worker response: ID = %d\n", ret);
+  /* Lock mutex for synchronize with worker after it's started */
+  mpmutex_lock(pmutex);
+  message("Worker said: %s\n", buf);
+  mpmutex_unlock(pmutex);
+
+  return 0;
+}
+
+static int req_subcore_dequeue(mpmq_t *pmq, mpmutex_t *pmutex, char *buf)
+{
+  int ret;
+  uint32_t msgdata;
+  int data = 0x1234;
+
+  /* Send command to worker */
+  data = QUEUEITEM_ID_REQ_DEQUEUE;
+  ret = mpmq_send(pmq, MSG_ID_APS_MULTICORE, (uint32_t)data);
+  if (ret < 0)
+    {
+      err("mpmq_send() failure. %d\n", ret);
+      return ret;
+    }
+
+  /* Wait for worker message */
+  ret = mpmq_receive(pmq, &msgdata);
+  if (ret < 0)
+    {
+      err("mpmq_recieve() failure. %d\n", ret);
+      return ret;
+    }
+  message("Worker response: ID = %d\n", ret);
+  /* Lock mutex for synchronize with worker after it's started */
+  mpmutex_lock(pmutex);
+  message("Worker said: %s\n", buf);
+  mpmutex_unlock(pmutex);
+
+  return 0;
+}
+
+static int req_subcore_quit(mpmq_t *pmq, mpmutex_t *pmutex, char *buf)
+{
+  int ret;
+  uint32_t msgdata;
+  int data = 0x1234;
+
+  /* Send command to worker */
+  data = QUEUEITEM_ID_REQ_QUIT;
+  ret = mpmq_send(pmq, MSG_ID_APS_MULTICORE, (uint32_t)data);
+  if (ret < 0)
+    {
+      err("mpmq_send() failure. %d\n", ret);
+      return ret;
+    }
+
+  /* Wait for worker message */
+  ret = mpmq_receive(pmq, &msgdata);
+  if (ret < 0)
+    {
+      err("mpmq_recieve() failure. %d\n", ret);
+      return ret;
+    }
+  message("Worker response: ID = %d\n", ret);
+  /* Lock mutex for synchronize with worker after it's started */
+  mpmutex_lock(pmutex);
+  message("Worker said: %s\n", buf);
+  mpmutex_unlock(pmutex);
 
   return 0;
 }
