@@ -9,6 +9,7 @@
 #include <time.h>
 #include <semaphore.h>
 
+#include "asmp.h"
 #include "include/debugring.h"
 
 /* static members */
@@ -45,7 +46,7 @@ static inline void __mutex_unlock(void)
 int init_debugring(void* buf, mpmutex_t *pmutex, eInitMode master)
 {
     int ret = 0;
-    myCpuId = 0;
+    myCpuId = asmp_getglobalcpuid();
     pDRing = (sDebugRing*)buf;
     pDRing->header.pmutex = pmutex; 
     if (master == DQUEUE_MASTER) {
