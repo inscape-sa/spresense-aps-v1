@@ -42,18 +42,24 @@ static inline void __mutex_unlock(void)
 /** ------------------------------------- *
  * Public Functions
  * -------------------------------------- */
-int init_debugring(void* buf, mpmutex_t *pmutex, bool master)
+int init_debugring(void* buf, mpmutex_t *pmutex, eInitMode master)
 {
     int ret = 0;
     myCpuId = 0;
     pDRing = (sDebugRing*)buf;
     pDRing->header.pmutex = pmutex; 
-    if (master == true) {
+    if (master == DQUEUE_MASTER) {
         pDRing->header.head = 0;
         pDRing->header.tail = 0;
     }
     return ret;
 }
+
+sDebugRing *get_debugring_addr(void)
+{
+    return pDRing;
+}
+
 
 int enqueue_debugring(int param, void *buf, int len)
 {

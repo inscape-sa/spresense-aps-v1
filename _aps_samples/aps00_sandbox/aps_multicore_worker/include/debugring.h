@@ -39,8 +39,14 @@ typedef struct s_debugring {
     sDebugRingHead header;
 } sDebugRing;
 
+typedef enum _e_initmode_for_ring {
+    DQUEUE_MASTER,
+    DQUEUE_SLAVE,
+} eInitMode;
+
 /* Public Method Definitions */
-int init_debugring(void* buf, mpmutex_t *pmutex, bool master);
+int init_debugring(void* buf, mpmutex_t *pmutex, eInitMode master);
+sDebugRing *get_debugring_addr(void);
 int enqueue_debugring(int param, void *buf, int len);
 int dequeue_debugring(sDebugRingItem *getItem, void *buf, int len);
 
