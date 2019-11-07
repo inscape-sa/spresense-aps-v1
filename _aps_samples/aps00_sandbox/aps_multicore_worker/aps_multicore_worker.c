@@ -77,10 +77,16 @@ int main(void)
     } else if (msgdata == QUEUEITEM_ID_REQ_DEQUEUE) {
       sDebugRingItem getItem;
       /* Copy hello message to shared memory */
-      dequeue_debugring(&getItem, recvbuf, 64);
+      ret = dequeue_debugring(&getItem, recvbuf, 64);
       /* Copy hello message to shared memory */
       mpmutex_lock(&mutex);
-      strcopy(buf, recvbuf);
+      if (ret < 0) {
+        /* Empty*/
+        buf[0] = '\0';
+      } else {
+        /* Get Item */
+        strcopy(buf, recvbuf);
+      }
       mpmutex_unlock(&mutex);
       msgdata = 0x2345;
       ret = mpmq_send(&mq, MSG_ID_APS_MULTICORE, msgdata);

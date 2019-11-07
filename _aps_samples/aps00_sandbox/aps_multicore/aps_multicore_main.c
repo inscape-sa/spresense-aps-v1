@@ -166,7 +166,7 @@ int aps_multicore_main(int argc, char *argv[])
       char buf[64];
       sDebugRing *pDRing = get_debugring_addr();
       ret = enqueue_debugring(small_loop, putData, 8);
-      message("Dequeue on Main<RET=%d|H=%d|T=%d> from MainCore\n",
+      message("Enqueue on Main<RET=%d|H=%d|T=%d> from MainCore\n",
         ret, pDRing->header.head, pDRing->header.tail);
     }
 
