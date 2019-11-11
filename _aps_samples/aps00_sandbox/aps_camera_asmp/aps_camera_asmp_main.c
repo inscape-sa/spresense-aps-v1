@@ -41,7 +41,7 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-#define DISABLE_DUALBUFFRING
+//#define DISABLE_DUALBUFFRING
 
 #ifndef DISABLE_DUALBUFFRING
 #define MAX_TASKS (2)
@@ -217,7 +217,13 @@ int aps_camera_asmp_main(int argc, char *argv[])
   free_buffer(bufferlist, bufnum);  
 
   diff_tick(&start_tick, &end_tick, DEFAULT_REPEAT_NUM);
-
+  printf("----------------------------\n");
+  printf("----- PROGRAM IS DONE. -----\n");
+  printf("- please push RESET button -\n");
+  printf("----------------------------\n");
+  while(1){
+    /* NOP */
+  }
   return 0;
 }
 
