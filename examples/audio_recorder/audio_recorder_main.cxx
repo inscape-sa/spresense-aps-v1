@@ -89,7 +89,7 @@ using namespace MemMgrLite;
  *       The channel number is 1/2/4/6/8
  */
 
-#define USE_MIC_CHANNEL_NUM  2
+#define USE_MIC_CHANNEL_NUM  4
 
 /* For FIFO. */
 
