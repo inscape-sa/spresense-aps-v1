@@ -28,7 +28,6 @@
 
 #include <arch/chip/cxd56_audio.h>
 
-
 /** ---
  * This Code is in NameSpace "MemMgrLite" 
  * (it's same as memory_manager).
@@ -42,8 +41,6 @@ using namespace MemMgrLite;
 #define AUDIO_SECTION   SECTION_NO0
 
 /** --- parameter settings */
-#define MAX_PATH_LENGTH 128
-#define RECFILE_ROOTPATH "/mnt/sd0/REC"
 #define DSPBIN_PATH "/mnt/sd0/BIN"
 #define USE_MIC_CHANNEL_NUM  2
 
@@ -51,9 +48,6 @@ using namespace MemMgrLite;
 #define READ_SIMPLE_FIFO_SIZE (3072 * USE_MIC_CHANNEL_NUM)
 #define SIMPLE_FIFO_FRAME_NUM 60
 #define SIMPLE_FIFO_BUF_SIZE  (READ_SIMPLE_FIFO_SIZE * SIMPLE_FIFO_FRAME_NUM)
-
-/* For line buffer mode. */
-#define STDIO_BUFFER_SIZE 4096
 
 /* Recording time(sec). */
 #define RECORDER_REC_TIME 10
@@ -205,12 +199,6 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
     return 1;
   }
 
-  /* Open directory of recording file. */
-  if (!app_open_file_dir()) {
-    printf("Error: app_open_file_dir() failure.\n");
-    return 1;
-  }
-
   /* On and after this point, AudioSubSystem must be active.
    * Register the callback function to be notified when a problem occurs.
    */
@@ -269,7 +257,21 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
 
   /* Running... */
   printf("Running time is %d sec\n", RECORDER_REC_TIME);
-  app_recorde_process(RECORDER_REC_TIME);
+  {
+    /* Timer Start */
+    time_t start_time;
+    time_t cur_time;
+    time(&start_time);
+
+    do {
+        /** Check the FIFO every 100 ms and fill if there is space. 
+         * 100ms => 4800points(L+R, 4byte * 4800 = 19200byte)
+         */
+        usleep(100 * 1000);
+        app_pop_simple_fifo();
+
+    } while((time(&cur_time) - start_time) < RECORDER_REC_TIME);
+  }
 
   /* Stop recorder operation. */
   if (!app_stop_recorder_wav()) {
@@ -287,12 +289,6 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
   if (!app_power_off()) {
     printf("Error: app_power_off() failure.\n");
     return 1;
-  }
-
-  /* Close directory of recording file. */
-  if (!app_close_file_dir()) {
-      printf("Error: app_close_contents_dir() failure.\n");
-      return 1;
   }
   
   /* finalize the shared memory and memory utility used by AudioSubSystem. */
@@ -525,31 +521,21 @@ static void app_pop_simple_fifo(void)
   while (occupied_simple_fifo_size > 0) {
     output_size = (occupied_simple_fifo_size > READ_SIMPLE_FIFO_SIZE) ?
       READ_SIMPLE_FIFO_SIZE : occupied_simple_fifo_size;
-#if 1        
-    //app_write_output_file_wav(output_size);
     do {        
       int ret;
       if (output_size == 0 || 
         CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle) == 0) {
         break;
       }
-
       if (CMN_SimpleFifoPoll(&s_recorder_info.fifo.handle,
                             (void*)s_recorder_info.fifo.write_buf,
                             output_size) == 0) {
         printf("ERROR: Fail to get data from simple FIFO.\n");
         break;
       }
-
-      ret = fwrite(s_recorder_info.fifo.write_buf, 1, output_size, s_recorder_info.file.fd);
-      if (ret < 0) {
-        printf("ERROR: Cannot write recorded data to output file.\n");
-        app_close_output_file_wav();
-        break;
-      }
+      printf("GET_WAV:%dbyte(on 0x%08x)\n", output_size, s_recorder_info.fifo.write_buf);
       s_recorder_info.file.size += output_size;
     } while(0);
-#endif
     occupied_simple_fifo_size -= output_size;
   }
 }
@@ -572,44 +558,6 @@ static void app_attention_callback(const ErrorAttentionParam *attparam)
 static void outputDeviceCallback(uint32_t size)
 {
     /* do nothing */
-}
-
-/** app_open_file_dir
- * - open file DIR at "/mnt/sd0/REC"
- */
-static bool app_open_file_dir(void)
-{
-  DIR *dirp;
-  int ret;
-  const char *name = RECFILE_ROOTPATH;
-
-  dirp = opendir("/mnt");
-  if (!dirp)
-    {
-      printf("opendir err(errno:%d)\n",errno);
-      return false;
-    }
-  ret = mkdir(name, 0777);
-  if (ret != 0)
-    {
-      if(errno != EEXIST)
-        {
-          printf("mkdir err(errno:%d)\n",errno);
-          return false;
-        }
-    }
-  s_recorder_info.file.dirp = dirp;
-  return true;
-}
-
-/** app_close_file_dir
- * - close file DIR for current recording
- * "/mnt/sd0/REC"
- */
-static bool app_close_file_dir(void)
-{
-  closedir(s_recorder_info.file.dirp);
-  return true;
 }
 
 /*********************************
@@ -872,12 +820,6 @@ static bool app_init_micfrontend(uint8_t preproc_type,
 static bool app_start_recorder_wav(void)
 {
   s_recorder_info.file.size = 0;
-#if 1  
-  if (!app_open_output_file_wav())
-    {
-      return false;
-    }
-#endif
   CMN_SimpleFifoClear(&s_recorder_info.fifo.handle);
 
   AudioCommand command;
@@ -907,206 +849,7 @@ static bool app_stop_recorder_wav(void)
   if (!printAudCmdResult(command.header.command_code, result)) {
     return false;
   }
-#if 1
   CMN_SimpleFifoClear(&s_recorder_info.fifo.handle);
-#else
-  size_t occupied_simple_fifo_size = CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
-  uint32_t output_size = 0;
-
-  while (occupied_simple_fifo_size > 0) {
-    output_size = (occupied_simple_fifo_size > READ_SIMPLE_FIFO_SIZE) ?
-      READ_SIMPLE_FIFO_SIZE : occupied_simple_fifo_size;
-#if 1       
-      //app_write_output_file_wav(output_size);
-      do {        
-        int ret;
-        if (output_size == 0 || 
-          CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle) == 0) {
-          break;
-        }
-
-        if (CMN_SimpleFifoPoll(&s_recorder_info.fifo.handle,
-                              (void*)s_recorder_info.fifo.write_buf,
-                              output_size) == 0) {
-          printf("ERROR: Fail to get data from simple FIFO.\n");
-          break;
-        }
-
-        ret = fwrite(s_recorder_info.fifo.write_buf, 1, output_size, s_recorder_info.file.fd);
-        if (ret < 0) {
-          printf("ERROR: Cannot write recorded data to output file.\n");
-          app_close_output_file_wav();
-          break;
-        }
-        s_recorder_info.file.size += output_size;
-      } while(0);
-#endif
-    occupied_simple_fifo_size = CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
-  }
-#endif
-#if 1
-  if (!app_update_wav_file_size()) {
-    printf("Error: app_write_wav_header() failure.\n");
-  }
-  app_close_output_file_wav();
-#endif
-
   return true;
 }
 
-static void app_recorde_process(uint32_t rec_time)
-{
-  /* Timer Start */
-  time_t start_time;
-  time_t cur_time;
-
-  time(&start_time);
-
-  do
-    {
-      /** Check the FIFO every 100 ms and fill if there is space. 
-       * 100ms => 4800points(L+R, 4byte * 4800 = 19200byte)
-       */
-      usleep(100 * 1000);
-      app_pop_simple_fifo();
-
-    } while((time(&cur_time) - start_time) < rec_time);
-}
-
-
-/*****************************************************************
- * File Access 
- *****************************************************************/
-/** app_open_output_file
- * - 
- */
-static bool app_open_output_file_wav(void)
-{
-  static char fname[MAX_PATH_LENGTH];
-
-  struct tm *cur_time;
-  struct timespec cur_sec;
-
-  clock_gettime(CLOCK_REALTIME, &cur_sec);
-  cur_time = gmtime(&cur_sec.tv_sec);
-
-  snprintf(fname, MAX_PATH_LENGTH, "%s/%04d%02d%02d_%02d%02d%02d.wav",
-    RECFILE_ROOTPATH,
-    cur_time->tm_year,
-    cur_time->tm_mon,
-    cur_time->tm_mday,
-    cur_time->tm_hour,
-    cur_time->tm_min,
-    cur_time->tm_sec);
-
-  s_recorder_info.file.fd = fopen(fname, "w");
-  if (s_recorder_info.file.fd == 0) {
-    printf("open err(%s)\n", fname);
-    return false;
-  }
-
-  setvbuf(s_recorder_info.file.fd, NULL, _IOLBF, STDIO_BUFFER_SIZE);
-  printf("Record data to %s.\n", &fname[0]);
-
-  if (!app_init_wav_header()) {
-    printf("Error: app_init_wav_header() failure.\n");
-    return false;
-  }
-
-  if (!app_write_wav_header()) {
-    printf("Error: app_write_wav_header() failure.\n");
-    return false;
-  }
-
-  return true;
-}
-
-/** app_close_output_file
- * - 
- */
-static void app_close_output_file_wav(void)
-{
-  fclose(s_recorder_info.file.fd);
-}
-
-/** app_write_output_file_wav
- * - 
- */
-#if 0
-static void app_write_output_file_wav(uint32_t size)
-{
-  ssize_t ret;
-
-  if (size == 0 || 
-      CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle) == 0) {
-    return;
-  }
-
-  if (CMN_SimpleFifoPoll(&s_recorder_info.fifo.handle,
-                        (void*)s_recorder_info.fifo.write_buf,
-                        size) == 0) {
-    printf("ERROR: Fail to get data from simple FIFO.\n");
-    return;
-  }
-
-  ret = fwrite(s_recorder_info.fifo.write_buf, 1, size, s_recorder_info.file.fd);
-  if (ret < 0) {
-    printf("ERROR: Cannot write recorded data to output file.\n");
-    app_close_output_file_wav();
-    return;
-  }
-  s_recorder_info.file.size += size;
-}
-#endif
-
-#if 1
-
-/** app_update_wav_file_size
- * - 
- */
-static bool app_update_wav_file_size(void)
-{
-  fseek(s_recorder_info.file.fd, 0, SEEK_SET);
-
-  s_container_format->getHeader(&s_wav_header, s_recorder_info.file.size);
-
-  size_t ret = fwrite((const void *)&s_wav_header,
-                      1,
-                      sizeof(WAVHEADER),
-                      s_recorder_info.file.fd);
-  if (ret != sizeof(WAVHEADER)) {
-    printf("Fail to write file(wav header)\n");
-    return false;
-  }
-  return true;
-}
-
-/** app_write_wav_header
- * - 
- */
-static bool app_write_wav_header(void)
-{
-  s_container_format->getHeader(&s_wav_header, 0);
-
-  size_t ret = fwrite((const void *)&s_wav_header,
-                      1,
-                      sizeof(WAVHEADER),
-                      s_recorder_info.file.fd);
-  if (ret != sizeof(WAVHEADER)) {
-    printf("Fail to write file(wav header)\n");
-    return false;
-  }
-  return true;
-}
-#endif
-
-/** app_init_wav_header
- * - 
- */
-static bool app_init_wav_header(void)
-{
-  return s_container_format->init(FORMAT_ID_PCM,
-                                 s_recorder_info.file.channel_number,
-                                 s_recorder_info.file.sampling_rate,
-                                 s_recorder_info.file.bitwidth);
-}
