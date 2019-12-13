@@ -137,6 +137,14 @@ struct recorder_info_s
 
 /** --- Prototype Definitions */
 static bool app_init_libraries(void);
+static bool app_create_audio_sub_system(void);
+static void app_attention_callback(const ErrorAttentionParam *attparam);
+static bool app_open_file_dir(void);
+static bool app_close_file_dir(void);
+/* Sub-Core(DSP) Interface [via Message-Queue] */
+static bool printAudCmdResult(uint8_t command_code, AudioResult& result);
+static bool app_power_on(void);
+static bool app_power_off(void);
 
 /** --- Static Variables */
 
@@ -154,12 +162,47 @@ static WAVHEADER  s_wav_header;
 extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
 {
   printf("Start aps_cxx_audio_detect\n");
+
+  /* First, initialize the shared memory and memory utility used by AudioSubSystem. */
   if (!app_init_libraries())
   {
     printf("Error: init_libraries() failure.\n");
     return 1;
   }
-  
+  /* Next, Create the features used by AudioSubSystem. */
+  if (!app_create_audio_sub_system()) {
+    printf("Error: act_audiosubsystem() failure.\n");
+    return 1;
+  }
+
+  /* Open directory of recording file. */
+  if (!app_open_file_dir()) {
+    printf("Error: app_open_file_dir() failure.\n");
+    return 1;
+  }
+
+  /* On and after this point, AudioSubSystem must be active.
+   * Register the callback function to be notified when a problem occurs.
+   */
+
+  /* Change AudioSubsystem to Ready state so that I/O parameters can be changed. */
+   if (!app_power_on()) {
+    printf("Error: app_power_on() failure.\n");
+    return 1;
+  }
+
+  /* Change AudioSubsystem to PowerOff state. */
+  if (!app_power_off()) {
+    printf("Error: app_power_off() failure.\n");
+    return 1;
+  }
+
+  /* Close directory of recording file. */
+  if (!app_close_file_dir()) {
+      printf("Error: app_close_contents_dir() failure.\n");
+      return 1;
+  }
+
   printf("SUCCESS - exit App.\n");
   return 0;
 }
@@ -236,4 +279,174 @@ static bool app_init_libraries(void)
   s_container_format = new WavContainerFormat();
 
   return true;
+}
+
+/** app_create_audio_sub_system
+ * - Create Audio Manager (= DSP)
+ * - Init MIC-FrontEnd CTRL
+ * - Create Recorder CTRL
+ * - Create Audio-Capture CTRL
+ */
+static bool app_create_audio_sub_system(void)
+{
+  bool result = false;
+
+  /* Create manager of AudioSubSystem. */
+  AudioSubSystemIDs ids;
+  ids.app         = MSGQ_AUD_APP;
+  ids.mng         = MSGQ_AUD_MGR;
+  ids.player_main = 0xFF;
+  ids.player_sub  = 0xFF;
+  ids.micfrontend = MSGQ_AUD_FRONTEND;
+  ids.mixer       = 0xFF;
+  ids.recorder    = MSGQ_AUD_RECORDER;
+  ids.effector    = 0xFF;
+  ids.recognizer  = 0xFF;
+  AS_CreateAudioManager(ids, app_attention_callback);
+
+  /* Create Frontend. */
+  AsCreateMicFrontendParams_t frontend_create_param;
+  frontend_create_param.msgq_id.micfrontend = MSGQ_AUD_FRONTEND;
+  frontend_create_param.msgq_id.mng         = MSGQ_AUD_MGR;
+  frontend_create_param.msgq_id.dsp         = MSGQ_AUD_PREDSP;
+  frontend_create_param.pool_id.input       = S0_INPUT_BUF_POOL;
+  frontend_create_param.pool_id.output      = S0_NULL_POOL;
+  frontend_create_param.pool_id.dsp         = S0_PRE_APU_CMD_POOL;
+  AS_CreateMicFrontend(&frontend_create_param, NULL);
+
+  /* Create Recorder. */
+  AsCreateRecorderParams_t recorder_create_param;
+  recorder_create_param.msgq_id.recorder      = MSGQ_AUD_RECORDER;
+  recorder_create_param.msgq_id.mng           = MSGQ_AUD_MGR;
+  recorder_create_param.msgq_id.dsp           = MSGQ_AUD_DSP;
+  recorder_create_param.pool_id.input         = S0_INPUT_BUF_POOL;
+  recorder_create_param.pool_id.output        = S0_ES_BUF_POOL;
+  recorder_create_param.pool_id.dsp           = S0_ENC_APU_CMD_POOL;
+  result = AS_CreateMediaRecorder(&recorder_create_param, NULL);
+  if (!result)
+    {
+      printf("Error: AS_CreateMediaRecorder() failure. system memory insufficient!\n");
+      return false;
+    }
+
+  /* Create Capture feature. */
+  AsCreateCaptureParam_t capture_create_param;
+  capture_create_param.msgq_id.dev0_req  = MSGQ_AUD_CAP;
+  capture_create_param.msgq_id.dev0_sync = MSGQ_AUD_CAP_SYNC;
+  capture_create_param.msgq_id.dev1_req  = 0xFF;
+  capture_create_param.msgq_id.dev1_sync = 0xFF;
+  result = AS_CreateCapture(&capture_create_param);
+  if (!result)
+    {
+      printf("Error: As_CreateCapture() failure. system memory insufficient!\n");
+      return false;
+    }
+
+  return true;
+}
+
+/** app_attention_callback
+ * - it will be called, when DPS is in not-good status.
+ */
+static void app_attention_callback(const ErrorAttentionParam *attparam)
+{
+  printf("Attention!! %s L%d ecode %d subcode %d\n",
+          attparam->error_filename,
+          attparam->line_number,
+          attparam->error_code,
+          attparam->error_att_sub_code);
+}
+
+/** app_open_file_dir
+ * - open file DIR at "/mnt/sd0/REC"
+ */
+static bool app_open_file_dir(void)
+{
+  DIR *dirp;
+  int ret;
+  const char *name = RECFILE_ROOTPATH;
+
+  dirp = opendir("/mnt");
+  if (!dirp)
+    {
+      printf("opendir err(errno:%d)\n",errno);
+      return false;
+    }
+  ret = mkdir(name, 0777);
+  if (ret != 0)
+    {
+      if(errno != EEXIST)
+        {
+          printf("mkdir err(errno:%d)\n",errno);
+          return false;
+        }
+    }
+  s_recorder_info.file.dirp = dirp;
+  return true;
+}
+
+/** app_close_file_dir
+ * - close file DIR for current recording
+ * "/mnt/sd0/REC"
+ */
+static bool app_close_file_dir(void)
+{
+  closedir(s_recorder_info.file.dirp);
+  return true;
+}
+
+/*********************************
+ * Communication API 
+ * from Main-Core to Sub-Core(DSP)
+ *********************************/
+/* this func print any Attention, 
+ * when Warning/Error Replry from Sub-Core will be reached. */
+static bool printAudCmdResult(uint8_t command_code, AudioResult& result)
+{
+  if (AUDRLT_ERRORRESPONSE == result.header.result_code) {
+    printf("Command code(0x%x): AUDRLT_ERRORRESPONSE:"
+           "Module id(0x%x): Error code(0x%x)\n",
+            command_code,
+            result.error_response_param.module_id,
+            result.error_response_param.error_code);
+    return false;
+  }
+  else if (AUDRLT_ERRORATTENTION == result.header.result_code) {
+    printf("Command code(0x%x): AUDRLT_ERRORATTENTION\n", command_code);
+    return false;
+  }
+  return true;
+}
+
+/** app_power_on
+ * 
+ */
+static bool app_power_on(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_POWERON;
+  command.header.command_code  = AUDCMD_POWERON;
+  command.header.sub_code      = 0x00;
+  command.power_on_param.enable_sound_effect = AS_DISABLE_SOUNDEFFECT;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_power_off
+ * 
+ */
+static bool app_power_off(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_SET_POWEROFF_STATUS;
+  command.header.command_code  = AUDCMD_SETPOWEROFFSTATUS;
+  command.header.sub_code      = 0x00;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
 }
