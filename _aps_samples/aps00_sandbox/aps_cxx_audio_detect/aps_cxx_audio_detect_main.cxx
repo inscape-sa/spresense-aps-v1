@@ -139,6 +139,7 @@ struct recorder_info_s
 static bool app_init_libraries(void);
 static bool app_create_audio_sub_system(void);
 static bool app_init_simple_fifo(void);
+static void app_pop_simple_fifo(void);
 static void app_attention_callback(const ErrorAttentionParam *attparam);
 static bool app_open_file_dir(void);
 static bool app_close_file_dir(void);
@@ -162,6 +163,7 @@ static bool app_set_recording_param_lpcm(sampling_rate_e sampling_rate,
 static bool app_init_micfrontend(uint8_t preproc_type, const char *dsp_name);
 static bool app_start_recorder_wav(void);
 static bool app_stop_recorder_wav(void);
+static void app_recorde_process(uint32_t rec_time);
 /*** FILE ACCESS **/
 static bool app_open_output_file_wav(void);
 static void app_close_output_file_wav(void);
@@ -260,6 +262,10 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
     printf("Error: app_start_recorder() failure.\n");
     return 1;
   }
+
+  /* Running... */
+  printf("Running time is %d sec\n", RECORDER_REC_TIME);
+  app_recorde_process(RECORDER_REC_TIME);
 
   /* Stop recorder operation. */
   if (!app_stop_recorder_wav()) {
@@ -446,6 +452,26 @@ static bool app_init_simple_fifo(void)
   s_recorder_info.fifo.output_device.callback_function = outputDeviceCallback;
 
   return true;
+}
+
+/** app_pop_simple_fifo
+ * - pop recorded sound from Simple-FIFO
+ * - In app_write_output_file_wav, 
+ *   Copy FIFO data and Write data in File.  
+ */
+static void app_pop_simple_fifo(void)
+{
+  size_t occupied_simple_fifo_size =
+    CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
+  uint32_t output_size = 0;
+
+  while (occupied_simple_fifo_size > 0)
+    {
+      output_size = (occupied_simple_fifo_size > READ_SIMPLE_FIFO_SIZE) ?
+        READ_SIMPLE_FIFO_SIZE : occupied_simple_fifo_size;
+      app_write_output_file_wav(output_size);
+      occupied_simple_fifo_size -= output_size;
+    }
 }
 
 /** app_attention_callback
@@ -825,6 +851,25 @@ static bool app_stop_recorder_wav(void)
 
   return true;
 }
+
+static void app_recorde_process(uint32_t rec_time)
+{
+  /* Timer Start */
+  time_t start_time;
+  time_t cur_time;
+
+  time(&start_time);
+
+  do
+    {
+      /* Check the FIFO every 5 ms and fill if there is space. */
+
+      usleep(5 * 1000);
+      app_pop_simple_fifo();
+
+    } while((time(&cur_time) - start_time) < rec_time);
+}
+
 
 /*****************************************************************
  * File Access 
