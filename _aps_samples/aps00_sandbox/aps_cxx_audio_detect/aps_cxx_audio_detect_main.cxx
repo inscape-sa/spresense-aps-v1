@@ -138,13 +138,37 @@ struct recorder_info_s
 /** --- Prototype Definitions */
 static bool app_init_libraries(void);
 static bool app_create_audio_sub_system(void);
+static bool app_init_simple_fifo(void);
 static void app_attention_callback(const ErrorAttentionParam *attparam);
 static bool app_open_file_dir(void);
 static bool app_close_file_dir(void);
 /* Sub-Core(DSP) Interface [via Message-Queue] */
+/*** REACTION **/
 static bool printAudCmdResult(uint8_t command_code, AudioResult& result);
+static void outputDeviceCallback(uint32_t size);
+/*** ACTION **/
 static bool app_power_on(void);
 static bool app_power_off(void);
+static bool app_init_mic_gain(void);
+static bool app_set_clkmode(int clk_mode);
+static bool app_set_recorder_status(void);
+static bool app_set_ready(void);
+static bool app_init_recorder_lpcm(sampling_rate_e sampling_rate,
+                                  channel_type_e ch_type,
+                                  bitwidth_e bitwidth);
+static bool app_set_recording_param_lpcm(sampling_rate_e sampling_rate,
+                                         channel_type_e ch_type,
+                                         bitwidth_e bitwidth);
+static bool app_init_micfrontend(uint8_t preproc_type, const char *dsp_name);
+static bool app_start_recorder_wav(void);
+static bool app_stop_recorder_wav(void);
+/*** FILE ACCESS **/
+static bool app_open_output_file_wav(void);
+static void app_close_output_file_wav(void);
+static void app_write_output_file_wav(uint32_t size);
+static bool app_update_wav_file_size(void);
+static bool app_write_wav_header(void);
+static bool app_init_wav_header(void);
 
 /** --- Static Variables */
 
@@ -188,6 +212,64 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
   /* Change AudioSubsystem to Ready state so that I/O parameters can be changed. */
    if (!app_power_on()) {
     printf("Error: app_power_on() failure.\n");
+    return 1;
+  }
+
+  /* Initialize simple fifo. */
+  if (!app_init_simple_fifo()) {
+    printf("Error: app_init_simple_fifo() failure.\n");
+    return false;
+  }
+
+  /* Set the initial gain of the microphone to be used. */
+  if (!app_init_mic_gain()) {
+    printf("Error: app_init_mic_gain() failure.\n");
+    return 1;
+  }
+
+  /* Set audio clock mode. */
+  // sampling_rate_e sampling_rate = SAMPLING_RATE_48K;
+  if (!app_set_clkmode(AS_CLKMODE_NORMAL)) {
+    printf("Error: app_set_clkmode() failure.\n");
+    return 1;
+  }
+
+  /* Set recorder operation mode. */
+  if (!app_set_recorder_status()) {
+    printf("Error: app_set_recorder_status() failure.\n");
+    return 1;
+  }
+
+  /* Initialize recorder. */
+  if (!app_init_recorder_lpcm(SAMPLING_RATE_48K,
+                              CHAN_TYPE_STEREO,
+                              BITWIDTH_16BIT)) {
+    printf("Error: app_init_recorder() failure.\n");
+    return 1;
+  }
+
+  /* Initialize MicFrontend. */
+  if (!app_init_micfrontend(AsMicFrontendPreProcThrough,
+                            "/mnt/sd0/BIN/PREPROC")) {
+    printf("Error: app_init_micfrontend() failure.\n");
+    return 1;
+  }
+
+  /* Start recorder operation. */
+  if (!app_start_recorder_wav()) {
+    printf("Error: app_start_recorder() failure.\n");
+    return 1;
+  }
+
+  /* Stop recorder operation. */
+  if (!app_stop_recorder_wav()) {
+    printf("Error: app_stop_recorder() failure.\n");
+    return 1;
+  }
+
+  /* Return the state of AudioSubSystem before voice_call operation. */
+  if (!app_set_ready()) {
+    printf("Error: app_set_ready() failure.\n");
     return 1;
   }
 
@@ -345,6 +427,27 @@ static bool app_create_audio_sub_system(void)
   return true;
 }
 
+/** app_init_simple_fifo
+ * - init SimpleFifo Manager (it's defined in includes). 
+ */
+static bool app_init_simple_fifo(void)
+{
+  if (CMN_SimpleFifoInitialize(&s_recorder_info.fifo.handle,
+                               s_recorder_info.fifo.fifo_area,
+                               SIMPLE_FIFO_BUF_SIZE, NULL) != 0)
+    {
+      printf("Error: Fail to initialize simple FIFO.");
+      return false;
+    }
+  CMN_SimpleFifoClear(&s_recorder_info.fifo.handle);
+
+  s_recorder_info.fifo.output_device.simple_fifo_handler =
+    (void*)(&s_recorder_info.fifo.handle);
+  s_recorder_info.fifo.output_device.callback_function = outputDeviceCallback;
+
+  return true;
+}
+
 /** app_attention_callback
  * - it will be called, when DPS is in not-good status.
  */
@@ -355,6 +458,14 @@ static void app_attention_callback(const ErrorAttentionParam *attparam)
           attparam->line_number,
           attparam->error_code,
           attparam->error_att_sub_code);
+}
+
+/** outputDeviceCallback
+ * - do nothing.
+ */
+static void outputDeviceCallback(uint32_t size)
+{
+    /* do nothing */
 }
 
 /** app_open_file_dir
@@ -449,4 +560,403 @@ static bool app_power_off(void)
   AudioResult result;
   AS_ReceiveAudioResult(&result);
   return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_init_mic_gain
+ * - set all MIC Gain 0dB. 
+ */
+static bool app_init_mic_gain(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_INITMICGAIN;
+  command.header.command_code  = AUDCMD_INITMICGAIN;
+  command.header.sub_code      = 0;
+  command.init_mic_gain_param.mic_gain[0] = 0;
+  command.init_mic_gain_param.mic_gain[1] = 0;
+  command.init_mic_gain_param.mic_gain[2] = 0;
+  command.init_mic_gain_param.mic_gain[3] = 0;
+  command.init_mic_gain_param.mic_gain[4] = 0;
+  command.init_mic_gain_param.mic_gain[5] = 0;
+  command.init_mic_gain_param.mic_gain[6] = 0;
+  command.init_mic_gain_param.mic_gain[7] = 0;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_set_clkmode
+ * setup NORMAL MODE (it's for under 192kbps)
+ */
+static bool app_set_clkmode(int clk_mode)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_SETRENDERINGCLK;
+  command.header.command_code  = AUDCMD_SETRENDERINGCLK;
+  command.header.sub_code      = 0x00;
+  command.set_renderingclk_param.clk_mode = clk_mode;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_set_recorder_status
+ * - setup INPUT=MIC, OUTPUT=RAM
+ */
+static bool app_set_recorder_status(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_SET_RECORDER_STATUS;
+  command.header.command_code  = AUDCMD_SETRECORDERSTATUS;
+  command.header.sub_code      = 0x00;
+  command.set_recorder_status_param.input_device          = AS_SETRECDR_STS_INPUTDEVICE_MIC;
+  command.set_recorder_status_param.input_device_handler  = 0x00;
+  command.set_recorder_status_param.output_device         = AS_SETRECDR_STS_OUTPUTDEVICE_RAM;
+  command.set_recorder_status_param.output_device_handler = &s_recorder_info.fifo.output_device;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_set_recorder_READY status
+ * - it's pair with app_set_recorder_status
+ */
+static bool app_set_ready(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_SET_READY_STATUS;
+  command.header.command_code  = AUDCMD_SETREADYSTATUS;
+  command.header.sub_code      = 0x00;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_init_recorder_lpcm
+ * - setup recording hardware for WAV format
+ */
+static bool app_init_recorder_lpcm(sampling_rate_e sampling_rate,
+                                  channel_type_e ch_type,
+                                  bitwidth_e bitwidth)
+{
+  // it support only "codec_type = AS_CODECTYPE_LPCM"
+  if (!app_set_recording_param_lpcm(sampling_rate,
+                                    ch_type,
+                                    bitwidth)) {
+    printf("Error: app_set_recording_param() failure.\n");
+    return false;
+  }
+
+  AudioCommand command;
+  command.header.packet_length = LENGTH_INIT_RECORDER;
+  command.header.command_code  = AUDCMD_INITREC;
+  command.header.sub_code      = 0x00;
+  command.recorder.init_param.sampling_rate  = s_recorder_info.file.sampling_rate;
+  command.recorder.init_param.channel_number = s_recorder_info.file.channel_number;
+  command.recorder.init_param.bit_length     = s_recorder_info.file.bitwidth;
+  snprintf(command.recorder.init_param.dsp_path, AS_AUDIO_DSP_PATH_LEN, "%s", DSPBIN_PATH);
+  /* app_init_recorder_wav */
+  command.recorder.init_param.codec_type = AS_CODECTYPE_LPCM;
+  s_recorder_info.file.format_type = FORMAT_TYPE_WAV;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+static bool app_set_recording_param_lpcm(sampling_rate_e sampling_rate,
+                                         channel_type_e ch_type,
+                                         bitwidth_e bitwidth)
+{
+  s_recorder_info.file.codec_type = AS_CODECTYPE_LPCM;
+  switch(sampling_rate) {
+  case SAMPLING_RATE_8K:
+    s_recorder_info.file.sampling_rate = AS_SAMPLINGRATE_8000;
+    break;
+  case SAMPLING_RATE_16K:
+    s_recorder_info.file.sampling_rate = AS_SAMPLINGRATE_16000;
+    break;
+  case SAMPLING_RATE_48K:
+    s_recorder_info.file.sampling_rate = AS_SAMPLINGRATE_48000;
+    break;
+  case SAMPLING_RATE_192K:
+    s_recorder_info.file.sampling_rate = AS_SAMPLINGRATE_192000;
+    break;
+  default:
+    printf("Error: Invalid sampling rate(%d)\n", sampling_rate);
+    return false;
+  }
+
+  switch(ch_type) {
+  case CHAN_TYPE_MONO:
+    s_recorder_info.file.channel_number = AS_CHANNEL_MONO;
+    break;
+  case CHAN_TYPE_STEREO:
+    s_recorder_info.file.channel_number = AS_CHANNEL_STEREO;
+    break;
+  case CHAN_TYPE_4CH:
+    s_recorder_info.file.channel_number = AS_CHANNEL_4CH;
+    break;
+  case CHAN_TYPE_6CH:
+    s_recorder_info.file.channel_number = AS_CHANNEL_6CH;
+    break;
+  case CHAN_TYPE_8CH:
+    s_recorder_info.file.channel_number = AS_CHANNEL_8CH;
+    break;
+  default:
+    printf("Error: Invalid channel type(%d)\n", ch_type);
+    return false;
+  }
+
+  switch (bitwidth) {
+  case BITWIDTH_16BIT:
+    s_recorder_info.file.bitwidth = AS_BITLENGTH_16;
+    break;
+  case BITWIDTH_24BIT:
+    s_recorder_info.file.bitwidth = AS_BITLENGTH_24;
+    break;
+  case BITWIDTH_32BIT:
+    s_recorder_info.file.bitwidth = AS_BITLENGTH_32;
+    break;
+  default:
+    printf("Error: Invalid bit width(%d)\n", bitwidth);
+    return false;
+  }
+
+  return true;
+}
+
+/** app_init_micfrontend
+ * - Request Loading DSP-codec on Sub-Core
+ */
+static bool app_init_micfrontend(uint8_t preproc_type,
+                                 const char *dsp_name)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_INIT_MICFRONTEND;
+  command.header.command_code  = AUDCMD_INIT_MICFRONTEND;
+  command.header.sub_code      = 0x00;
+  command.init_micfrontend_param.ch_num       = s_recorder_info.file.channel_number;
+  command.init_micfrontend_param.bit_length   = s_recorder_info.file.bitwidth;
+  command.init_micfrontend_param.samples      = getCapSampleNumPerFrame(s_recorder_info.file.codec_type,
+                                                                        s_recorder_info.file.sampling_rate);
+  command.init_micfrontend_param.preproc_type = preproc_type;
+  snprintf(command.init_micfrontend_param.preprocess_dsp_path,
+           AS_PREPROCESS_FILE_PATH_LEN,
+           "%s", dsp_name);
+  command.init_micfrontend_param.data_dest = AsMicFrontendDataToRecorder;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_start_recorder_wav
+ * - 
+ */
+static bool app_start_recorder_wav(void)
+{
+  s_recorder_info.file.size = 0;
+#if 1  
+  if (!app_open_output_file_wav())
+    {
+      return false;
+    }
+#endif
+  CMN_SimpleFifoClear(&s_recorder_info.fifo.handle);
+
+  AudioCommand command;
+  command.header.packet_length = LENGTH_START_RECORDER;
+  command.header.command_code  = AUDCMD_STARTREC;
+  command.header.sub_code      = 0x00;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  return printAudCmdResult(command.header.command_code, result);
+}
+
+/** app_stop_recorder_wav
+ * - 
+ */
+static bool app_stop_recorder_wav(void)
+{
+  AudioCommand command;
+  command.header.packet_length = LENGTH_STOP_RECORDER;
+  command.header.command_code  = AUDCMD_STOPREC;
+  command.header.sub_code      = 0x00;
+  AS_SendAudioCommand(&command);
+
+  AudioResult result;
+  AS_ReceiveAudioResult(&result);
+  if (!printAudCmdResult(command.header.command_code, result))
+    {
+      return false;
+    }
+
+  size_t occupied_simple_fifo_size = CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
+  uint32_t output_size = 0;
+
+  while (occupied_simple_fifo_size > 0)
+    {
+      output_size = (occupied_simple_fifo_size > READ_SIMPLE_FIFO_SIZE) ?
+        READ_SIMPLE_FIFO_SIZE : occupied_simple_fifo_size;
+#if 1        
+      app_write_output_file_wav(output_size);
+#endif
+      occupied_simple_fifo_size = CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
+    }
+
+#if 1
+  if (!app_update_wav_file_size()) {
+    printf("Error: app_write_wav_header() failure.\n");
+  }
+  app_close_output_file_wav();
+#endif
+
+  return true;
+}
+
+/*****************************************************************
+ * File Access 
+ *****************************************************************/
+/** app_open_output_file
+ * - 
+ */
+static bool app_open_output_file_wav(void)
+{
+  static char fname[MAX_PATH_LENGTH];
+
+  struct tm *cur_time;
+  struct timespec cur_sec;
+
+  clock_gettime(CLOCK_REALTIME, &cur_sec);
+  cur_time = gmtime(&cur_sec.tv_sec);
+
+  snprintf(fname, MAX_PATH_LENGTH, "%s/%04d%02d%02d_%02d%02d%02d.wav",
+    RECFILE_ROOTPATH,
+    cur_time->tm_year,
+    cur_time->tm_mon,
+    cur_time->tm_mday,
+    cur_time->tm_hour,
+    cur_time->tm_min,
+    cur_time->tm_sec);
+
+  s_recorder_info.file.fd = fopen(fname, "w");
+  if (s_recorder_info.file.fd == 0) {
+    printf("open err(%s)\n", fname);
+    return false;
+  }
+
+  setvbuf(s_recorder_info.file.fd, NULL, _IOLBF, STDIO_BUFFER_SIZE);
+  printf("Record data to %s.\n", &fname[0]);
+
+  if (!app_init_wav_header()) {
+    printf("Error: app_init_wav_header() failure.\n");
+    return false;
+  }
+
+  if (!app_write_wav_header()) {
+    printf("Error: app_write_wav_header() failure.\n");
+    return false;
+  }
+
+  return true;
+}
+
+/** app_close_output_file
+ * - 
+ */
+static void app_close_output_file_wav(void)
+{
+  fclose(s_recorder_info.file.fd);
+}
+
+/** app_write_output_file_wav
+ * - 
+ */
+static void app_write_output_file_wav(uint32_t size)
+{
+  ssize_t ret;
+
+  if (size == 0 || 
+      CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle) == 0) {
+    return;
+  }
+
+  if (CMN_SimpleFifoPoll(&s_recorder_info.fifo.handle,
+                        (void*)s_recorder_info.fifo.write_buf,
+                        size) == 0) {
+    printf("ERROR: Fail to get data from simple FIFO.\n");
+    return;
+  }
+
+  ret = fwrite(s_recorder_info.fifo.write_buf, 1, size, s_recorder_info.file.fd);
+  if (ret < 0) {
+    printf("ERROR: Cannot write recorded data to output file.\n");
+    app_close_output_file_wav();
+    return;
+  }
+  s_recorder_info.file.size += size;
+}
+
+#if 1
+
+/** app_update_wav_file_size
+ * - 
+ */
+static bool app_update_wav_file_size(void)
+{
+  fseek(s_recorder_info.file.fd, 0, SEEK_SET);
+
+  s_container_format->getHeader(&s_wav_header, s_recorder_info.file.size);
+
+  size_t ret = fwrite((const void *)&s_wav_header,
+                      1,
+                      sizeof(WAVHEADER),
+                      s_recorder_info.file.fd);
+  if (ret != sizeof(WAVHEADER)) {
+    printf("Fail to write file(wav header)\n");
+    return false;
+  }
+  return true;
+}
+
+/** app_write_wav_header
+ * - 
+ */
+static bool app_write_wav_header(void)
+{
+  s_container_format->getHeader(&s_wav_header, 0);
+
+  size_t ret = fwrite((const void *)&s_wav_header,
+                      1,
+                      sizeof(WAVHEADER),
+                      s_recorder_info.file.fd);
+  if (ret != sizeof(WAVHEADER)) {
+    printf("Fail to write file(wav header)\n");
+    return false;
+  }
+  return true;
+}
+#endif
+
+/** app_init_wav_header
+ * - 
+ */
+static bool app_init_wav_header(void)
+{
+  return s_container_format->init(FORMAT_ID_PCM,
+                                 s_recorder_info.file.channel_number,
+                                 s_recorder_info.file.sampling_rate,
+                                 s_recorder_info.file.bitwidth);
 }
