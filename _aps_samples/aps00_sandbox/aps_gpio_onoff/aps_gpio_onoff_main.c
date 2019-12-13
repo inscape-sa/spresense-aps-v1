@@ -79,10 +79,10 @@ int aps_gpio_onoff_main(int argc, char *argv[])
 /**
  * private -- Arduino Compat
  */
-static void pinMode(int pin, bool mode)
+static void pinMode(int pin, bool input_enable)
 {
   int ret;
-  ret = board_gpio_config(pin, 0, mode, false, PIN_FLOAT);
+  ret = board_gpio_config(pin, 0, input_enable, false, PIN_FLOAT);
   if (ret != 0) {
     printf("ERROR:board_gpio_config(%d)", pin);
     while(1)
