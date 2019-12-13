@@ -18,6 +18,11 @@ CXXSRCS = $(filter-out $(MAINSRC),$(wildcard *.c) $(wildcard */*.c)) $(wildcard 
 CFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
 CXXFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
 
+## for Memory Utility
+CXXFLAGS += -D_POSIX
+CXXFLAGS += -DUSE_MEMMGR_FENCE
+CXXFLAGS += -DATTENTION_USE_FILENAME_LINE
+
 CONFIG_APS_CXX_AUDIO_DETECT_PROGNAME ?= aps_cxx_audio_detect$(EXEEXT)
 PROGNAME = $(CONFIG_APS_CXX_AUDIO_DETECT_PROGNAME)
 

@@ -14,15 +14,6 @@
 
 static char helloworld[] = "Hello, ASMP World(0)!";
 
-static char *strcopy(char *dest, const char *src)
-{
-  char *d = dest;
-  while (*src) *d++ = *src++;
-  *d = '\0';
-
-  return dest;
-}
-
 int main(void)
 {
   mpmutex_t mutex;
