@@ -8,10 +8,10 @@ APPNAME = aps_template_asmp
 PRIORITY = $(CONFIG_APS_TEMPLATE_ASMP_PRIORITY)
 STACKSIZE = $(CONFIG_APS_TEMPLATE_ASMP_STACKSIZE)
 
-MAINSRC = aps_template_asmp_main.c
+MAINSRC = aps_template_asmp_main.cxx
 ASRCS =
-CSRCS = $(filter-out $(MAINSRC),$(wildcard *.c) $(wildcard */*.c))
-CXXSRCS = $(wildcard *.cpp) $(wildcard */*.cpp) $(wildcard *.cxx) $(wildcard */*.cxx)
+CSRCS = $(wildcard *.c) $(wildcard */*.c) $(wildcard *.c) $(wildcard */*.c)
+CXXSRCS = $(filter-out $(MAINSRC),$(wildcard *.cxx) $(wildcard */*.cxx)) $(wildcard *.cpp) $(wildcard */*.cpp) $(wildcard *.cxx) $(wildcard */*.cxx)
 
 CFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
 CXXFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
