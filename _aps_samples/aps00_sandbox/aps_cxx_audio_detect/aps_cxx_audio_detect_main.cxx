@@ -507,6 +507,22 @@ static bool app_init_simple_fifo(void)
   return true;
 }
 
+/** test_print_buf
+ * - output write_buffer (Received WAV-DATA)
+ * (head+0byte to head+63byte)
+ */
+static void test_print_buf (int size, uint8_t *buf)
+{
+  int pos;
+  for (pos = 0; pos < 64; pos++) {
+    printf("%02x ", s_recorder_info.fifo.write_buf[pos]);
+    if ((pos % 16) == 0) {
+      printf("\n");
+    }
+  }
+  printf("\n");
+}
+
 /** app_pop_simple_fifo
  * - pop recorded sound from Simple-FIFO
  * - In app_write_output_file_wav, 
@@ -534,6 +550,7 @@ static void app_pop_simple_fifo(void)
         break;
       }
       printf("GET_WAV:%dbyte(on 0x%08x)\n", output_size, s_recorder_info.fifo.write_buf);
+      test_print_buf(output_size, s_recorder_info.fifo.write_buf);
       s_recorder_info.file.size += output_size;
     } while(0);
     occupied_simple_fifo_size -= output_size;
