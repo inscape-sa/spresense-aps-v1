@@ -1,5 +1,9 @@
 #include "worker_ctrl.h"
 
+/** WorkerCtrl (constructor)
+ * - arg = program on sub-core
+ * - geneate task, and assign at a CPU. 
+ */
 WorkerCtrl::WorkerCtrl(const char *setFileName)
 {
   int ret;
@@ -19,6 +23,9 @@ WorkerCtrl::WorkerCtrl(const char *setFileName)
   return;
 }
 
+/** WorkerCtrl (destructor)
+ * - delete shm, mutex, mq
+ */
 WorkerCtrl::~WorkerCtrl(void)
 {
   /* Finalize all of MP objects */
@@ -28,11 +35,17 @@ WorkerCtrl::~WorkerCtrl(void)
   mpmq_destroy(&this->mq);
 }
 
+/** getReady
+ * - check already init all task-resources
+ */
 bool WorkerCtrl::getReady(void)
 {
   return (this->status == TASK_READY)? true : false;
 }
 
+/** initMutex
+ * - init mutex in TaskResource as ID
+ */
 int WorkerCtrl::initMutex(int id)
 {
   int ret;
@@ -47,6 +60,9 @@ int WorkerCtrl::initMutex(int id)
   return 0; 
 }
 
+/** initMq
+ * - init Message-Queue in TaskResource as ID
+ */
 int WorkerCtrl::initMq(int id)
 {
   int ret;
@@ -61,6 +77,9 @@ int WorkerCtrl::initMq(int id)
   return 0; 
 }
 
+/** initShm
+ * - init Shared-memory in TaskResource as ID
+ */
 void *WorkerCtrl::initShm(int id, ssize_t size)
 {
   int ret;
@@ -80,32 +99,51 @@ void *WorkerCtrl::initShm(int id, ssize_t size)
   return buf; 
 }
 
+/** execTask
+ * - start Task on sub-core
+ */
 int WorkerCtrl::execTask(void)
 {
   return mptask_exec(&this->mptask);
 }
 
+/** destroyTask
+ * - force Exit and Destroy Task on sub-core
+ */
 int WorkerCtrl::destroyTask(void)
 {
   mptask_destroy(&this->mptask, false, &this->retcode);
   return this->retcode;
 }
 
+/** lock
+ * - Entering Critical-Section with mutex
+ */
 void WorkerCtrl::lock(void)
 {
   mpmutex_lock(&this->mutex);
 }
 
+/** unlock
+ * - Exit Critical-Section with mutex
+ */
 void WorkerCtrl::unlock(void)
 {
   mpmutex_unlock(&this->mutex);
 }
 
+/** send
+ * - send message with (id,value) via MQ
+ */
 int WorkerCtrl::send(int8_t msgid, uint32_t value)
 {
   return mpmq_send(&this->mq, msgid, value);
 }
 
+/** receive
+ * - receive message (id,value) via MQ
+ * - it can be used for nonblocking receive.
+ */
 int WorkerCtrl::receive(uint32_t *pvalue, bool nonblocking)
 {
   int ret;

@@ -20,8 +20,6 @@
 #define message(format, ...)    printf(format, ##__VA_ARGS__)
 #define err(format, ...)        fprintf(stderr, format, ##__VA_ARGS__)
 
-#define SHM_SIZE (128 * 1024)
-
 /** Start Programs */
 extern "C" int aps_template_asmp_main(int argc, char *argv[])
 {
@@ -50,7 +48,7 @@ extern "C" int aps_template_asmp_main(int argc, char *argv[])
     return ret;
   }
 
-  buf = pwc->initShm(APS_TEMPLATE_ASMPKEY_SHM, SHM_SIZE);
+  buf = pwc->initShm(APS_TEMPLATE_ASMPKEY_SHM, APS_TEMPLATE_ASMPKEY_SHM_SIZE);
   if (buf == NULL) {
     err("initShm() failure. %d\n", ret);
     return ret;
@@ -63,8 +61,31 @@ extern "C" int aps_template_asmp_main(int argc, char *argv[])
     return ret;
   }
 
+  for (int loop = 0; loop < 10; loop++) {
+    /* Send command to worker */
+    ret = pwc->send((uint8_t)MSG_ID_APS_TEMPLATE_ASMP_ACT, (uint32_t) &data);
+    if (ret < 0) {
+      err("send() failure. %d\n", ret);
+      return ret;
+    }
+
+    /* Wait for worker message */
+    ret = pwc->receive((uint32_t *)&msgdata);
+    if (ret < 0) {
+      err("recieve() failure. %d\n", ret);
+      return ret;
+    }
+    message("Worker response: ID = %d, data = %x\n",
+            ret, *((int *)msgdata));
+              
+    /* Lock mutex for synchronize with worker after it's started */
+    pwc->lock();
+    message("Worker said: %s\n", buf);
+    pwc->unlock();
+  }
+
   /* Send command to worker */
-  ret = pwc->send((uint8_t)MSG_ID_APS_TEMPLATE_ASMP, (uint32_t) &data);
+  ret = pwc->send((uint8_t)MSG_ID_APS_TEMPLATE_ASMP_EXIT, (uint32_t) &data);
   if (ret < 0) {
     err("send() failure. %d\n", ret);
     return ret;
@@ -79,12 +100,6 @@ extern "C" int aps_template_asmp_main(int argc, char *argv[])
   message("Worker response: ID = %d, data = %x\n",
           ret, *((int *)msgdata));
 
-  /* Show worker copied data */
-
-  /* Lock mutex for synchronize with worker after it's started */
-  pwc->lock();
-  message("Worker said: %s\n", buf);
-  pwc->unlock();
   
   /* Destroy worker */
   ret = pwc->destroyTask();
