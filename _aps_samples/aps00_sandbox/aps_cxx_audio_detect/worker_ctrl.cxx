@@ -99,6 +99,14 @@ void *WorkerCtrl::initShm(int id, ssize_t size)
   return buf; 
 }
 
+/** getAddrShm
+ * - get Address for Shared-Memory
+ */
+void *WorkerCtrl::getAddrShm(void)
+{
+  return this->buf;
+}
+
 /** execTask
  * - start Task on sub-core
  */

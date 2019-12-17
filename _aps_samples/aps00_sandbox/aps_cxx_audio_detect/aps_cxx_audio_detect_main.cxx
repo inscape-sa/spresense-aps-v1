@@ -142,7 +142,7 @@ static bool app_finalize_libraries(void);
 static bool app_create_audio_sub_system(void);
 static void app_deact_audio_sub_system(void);
 static bool app_init_simple_fifo(void);
-static void app_pop_simple_fifo(void);
+static int app_pop_simple_fifo(void *dst);
 static void app_attention_callback(const ErrorAttentionParam *attparam);
 static bool app_open_file_dir(void);
 static bool app_close_file_dir(void);
@@ -174,7 +174,9 @@ static bool app_update_wav_file_size(void);
 static bool app_write_wav_header(void);
 static bool app_init_wav_header(void);
 /** ASMP **/
-static int test_subcore_ctrl(void);
+static WorkerCtrl *init_subcore_ctrl(void);
+static int req_subcore_ctrl(WorkerCtrl *pwc, int size);
+static int fini_subcore_ctrl(WorkerCtrl *pwc);
 
 /** --- Static Variables */
 
@@ -192,7 +194,8 @@ static WAVHEADER  s_wav_header;
 extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
 {
   int ret;
-  
+  WorkerCtrl *pwc;
+
   printf("Start aps_cxx_audio_detect\n");
 
   /* First, initialize the shared memory and memory utility used by AudioSubSystem. */
@@ -258,12 +261,13 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
   }
 
   /** -- TEST CODE START -- */
-  ret = test_subcore_ctrl();
-  if (ret < 0) {
-    printf("Error: test_subcore_ctrl failure.\n");
-    return 1;
+  pwc = init_subcore_ctrl();
+  if (pwc == NULL) {
+    printf("Error: init_subcore_ctrl failure.\n");
+    return -1;
   }
   /** -- TEST CODE END -- */
+
 
   /* Start recorder operation. */
   if (!app_start_recorder_wav()) {
@@ -280,14 +284,34 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
     time(&start_time);
 
     do {
-        /** Check the FIFO every 100 ms and fill if there is space. 
-         * 100ms => 4800points(L+R, 4byte * 4800 = 19200byte)
-         */
-        usleep(100 * 1000);
-        app_pop_simple_fifo();
-
+      /* get Shared Memory */
+      void *buf = pwc->getAddrShm();
+      int getsize;
+      /** Check the FIFO every 100 ms and fill if there is space. 
+       * 100ms => 4800points(L+R, 4byte * 4800 = 19200byte)
+       */
+      usleep(50 * 1000);
+      getsize = app_pop_simple_fifo(buf);
+      
+      /** -- TEST CODE START -- */
+      printf("Start: req_subcore_ctrl with (0x%08x,%dbyte).\n", buf, getsize);
+      ret = req_subcore_ctrl(pwc, getsize);
+      if (ret != 0) {
+        printf("Error: req_subcore_ctrl failure.\n");
+        return -1;
+      }
+      printf("Exit: req_subcore_ctrl.\n");      
+      /** -- TEST CODE END -- */
     } while((time(&cur_time) - start_time) < RECORDER_REC_TIME);
   }
+
+  /** -- TEST CODE START -- */
+  ret = fini_subcore_ctrl(pwc);
+  if (ret != 0) {
+    printf("Error: fini_subcore_ctrl failure.\n");
+    return -1;
+  }
+  /** -- TEST CODE END -- */
 
   /* Stop recorder operation. */
   if (!app_stop_recorder_wav()) {
@@ -527,12 +551,14 @@ static bool app_init_simple_fifo(void)
  * - output write_buffer (Received WAV-DATA)
  * (head+0byte to head+63byte)
  */
-static void test_print_buf (int size, uint8_t *buf)
+static void test_print_buf (int size, void *buf)
 {
+  int items_in_line = 16;
   int pos;
-  for (pos = 0; pos < 64; pos++) {
-    printf("%02x ", s_recorder_info.fifo.write_buf[pos]);
-    if ((pos % 16) == 0) {
+  uint8_t *p = (uint8_t *)buf;
+  for (pos = 0; pos < 32; pos++) {
+    printf("%02x ", p[pos]);
+    if ((pos % items_in_line) == (items_in_line - 1)) {
       printf("\n");
     }
   }
@@ -541,36 +567,47 @@ static void test_print_buf (int size, uint8_t *buf)
 
 /** app_pop_simple_fifo
  * - pop recorded sound from Simple-FIFO
+ * - copy to buf[dst]
  * - In app_write_output_file_wav, 
  *   Copy FIFO data and Write data in File.  
  */
-static void app_pop_simple_fifo(void)
+static int app_pop_simple_fifo(void *dst)
 {
+  int cnt = 0; /* for Dequeue Counter in single app_pop_simple_fifo */
   size_t occupied_simple_fifo_size =
     CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle);
   uint32_t output_size = 0;
+  int offset = 0;
+  void *putaddr;
 
   while (occupied_simple_fifo_size > 0) {
     output_size = (occupied_simple_fifo_size > READ_SIMPLE_FIFO_SIZE) ?
       READ_SIMPLE_FIFO_SIZE : occupied_simple_fifo_size;
+    putaddr = (void *)(((uint32_t)dst) + offset);
     do {        
-      int ret;
+      //int ret;
       if (output_size == 0 || 
         CMN_SimpleFifoGetOccupiedSize(&s_recorder_info.fifo.handle) == 0) {
         break;
       }
       if (CMN_SimpleFifoPoll(&s_recorder_info.fifo.handle,
-                            (void*)s_recorder_info.fifo.write_buf,
+                            putaddr,
+                            //(void*)s_recorder_info.fifo.write_buf,
                             output_size) == 0) {
         printf("ERROR: Fail to get data from simple FIFO.\n");
         break;
       }
-      printf("GET_WAV:%dbyte(on 0x%08x)\n", output_size, s_recorder_info.fifo.write_buf);
-      test_print_buf(output_size, s_recorder_info.fifo.write_buf);
+      //printf("[%d]GET_WAV:%dbyte(on 0x%08x)\n", cnt, output_size, s_recorder_info.fifo.write_buf);
+      printf("[%d]GET_WAV:%dbyte(on 0x%08x)\n", cnt, output_size, putaddr);
+      //test_print_buf(output_size, s_recorder_info.fifo.write_buf);
+      test_print_buf(output_size, putaddr);
       s_recorder_info.file.size += output_size;
     } while(0);
+    offset += output_size;
     occupied_simple_fifo_size -= output_size;
+    cnt++;
   }
+  return offset;
 }
 
 /** app_attention_callback
@@ -890,12 +927,14 @@ static bool app_stop_recorder_wav(void)
  * Task Control API 
  * from Main-Core to Sub-Core(DSP)
  *********************************/
-/** Start Programs */
-static int test_subcore_ctrl(void)
+/** init_subcore_ctrl
+ * - Create WorkerCtrl Instance
+ * - init All Reseources of Task
+ * - Start Task on Sub-Core
+ */
+static WorkerCtrl *init_subcore_ctrl(void)
 {
   WorkerCtrl *pwc;
-  uint32_t msgdata;
-  int data = 0x1234;
   int ret;
   void *buf;
 
@@ -903,56 +942,81 @@ static int test_subcore_ctrl(void)
   /* Initialize MP mutex and bind it to MP task */
   if (!pwc->getReady()) {
     printf("WorkerCtrl() constructor failure.\n");
-    return -1;
+    return NULL;
   }
 
   ret = pwc->initMutex(APS_CXX_AUDIO_DETECTKEY_MUTEX);
   if (ret < 0) {
     printf("initMutex(mutex) failure. %d\n", ret);
-    return ret;
+    return NULL;
   }
 
   ret = pwc->initMq(APS_CXX_AUDIO_DETECTKEY_MQ);
   if (ret < 0) {
     printf("initMq(shm) failure. %d\n", ret);
-    return ret;
+    return NULL;
   }
 
   buf = pwc->initShm(APS_CXX_AUDIO_DETECTKEY_SHM, APS_CXX_AUDIO_DETECTKEY_SHM_SIZE);
   if (buf == NULL) {
     printf("initShm() failure. %d\n", ret);
-    return ret;
+    return NULL;
   }
   printf("attached at %08x\n", (uintptr_t)buf);
 
   ret = pwc->execTask();
   if (ret < 0) {
     printf("execTask() failure. %d\n", ret);
+    return NULL;
+  }
+
+  return pwc;
+}
+
+/** req_subcore_ctrl
+ * - Send REQ Message
+ * - wait Response Code
+ */
+static int req_subcore_ctrl(WorkerCtrl *pwc, int getsize)
+{
+  int ret;
+  uint32_t msgdata;
+  int data = getsize;
+  void *buf = pwc->getAddrShm();
+
+  /* Send command to worker */
+  ret = pwc->send((uint8_t)MSG_ID_APS_CXX_AUDIO_DETECT_ACT, (uint32_t) &data);
+  if (ret < 0) {
+    printf("send() failure. %d\n", ret);
     return ret;
   }
 
-  for (int loop = 0; loop < 10; loop++) {
-    /* Send command to worker */
-    ret = pwc->send((uint8_t)MSG_ID_APS_CXX_AUDIO_DETECT_ACT, (uint32_t) &data);
-    if (ret < 0) {
-      printf("send() failure. %d\n", ret);
-      return ret;
-    }
-
-    /* Wait for worker message */
-    ret = pwc->receive((uint32_t *)&msgdata);
-    if (ret < 0) {
-      printf("recieve() failure. %d\n", ret);
-      return ret;
-    }
-    printf("Worker response: ID = %d, data = %x\n",
-            ret, *((int *)msgdata));
-              
-    /* Lock mutex for synchronize with worker after it's started */
-    pwc->lock();
-    printf("Worker said: %s\n", buf);
-    pwc->unlock();
+  /* Wait for worker message */
+  ret = pwc->receive((uint32_t *)&msgdata);
+  if (ret < 0) {
+    printf("recieve() failure. %d\n", ret);
+    return ret;
   }
+  printf("Worker response: ID = %d, data = %d\n", ret, *((int *)msgdata));
+            
+  /* Lock mutex for synchronize with worker after it's started */
+  pwc->lock();
+  printf("Worker said: %s\n", buf);
+  pwc->unlock();
+
+  return 0;
+}
+
+/** fini_subcore_ctrl
+ * - Send EXIT Message
+ * - Destroy all Task Resources
+ * - delete WorkerCtrl class
+ */
+static int fini_subcore_ctrl(WorkerCtrl *pwc)
+{
+  int ret;
+  uint32_t msgdata;
+  int data = 0x1234;
 
   /* Send command to worker */
   ret = pwc->send((uint8_t)MSG_ID_APS_CXX_AUDIO_DETECT_EXIT, (uint32_t) &data);

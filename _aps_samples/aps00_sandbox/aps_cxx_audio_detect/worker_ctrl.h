@@ -36,6 +36,7 @@ public:
   int initMutex(int id);
   int initMq(int id);
   void *initShm(int id, ssize_t size);
+  void *getAddrShm(void);
   int execTask(void);
   int destroyTask(void);
   void lock(void);
