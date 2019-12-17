@@ -28,6 +28,13 @@
 
 #include <arch/chip/cxd56_audio.h>
 
+/* include API for MultiCore Management */
+#include "worker_ctrl.h"
+#include "aps_cxx_audio_detect.h"
+
+/* Worker ELF path */
+#define WORKER_FILE "/mnt/spif/aps_cxx_audio_detect"
+
 /** ---
  * This Code is in NameSpace "MemMgrLite" 
  * (it's same as memory_manager).
@@ -163,12 +170,11 @@ static void app_recorde_process(uint32_t rec_time);
 /*** FILE ACCESS **/
 static bool app_open_output_file_wav(void);
 static void app_close_output_file_wav(void);
-#if 0
-static void app_write_output_file_wav(uint32_t size);
-#endif
 static bool app_update_wav_file_size(void);
 static bool app_write_wav_header(void);
 static bool app_init_wav_header(void);
+/** ASMP **/
+static int test_subcore_ctrl(void);
 
 /** --- Static Variables */
 
@@ -185,6 +191,8 @@ static WAVHEADER  s_wav_header;
 /** Start Programs */
 extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
 {
+  int ret;
+  
   printf("Start aps_cxx_audio_detect\n");
 
   /* First, initialize the shared memory and memory utility used by AudioSubSystem. */
@@ -248,6 +256,14 @@ extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
     printf("Error: app_init_micfrontend() failure.\n");
     return 1;
   }
+
+  /** -- TEST CODE START -- */
+  ret = test_subcore_ctrl();
+  if (ret < 0) {
+    printf("Error: test_subcore_ctrl failure.\n");
+    return 1;
+  }
+  /** -- TEST CODE END -- */
 
   /* Start recorder operation. */
   if (!app_start_recorder_wav()) {
@@ -870,3 +886,100 @@ static bool app_stop_recorder_wav(void)
   return true;
 }
 
+/*********************************
+ * Task Control API 
+ * from Main-Core to Sub-Core(DSP)
+ *********************************/
+/** Start Programs */
+static int test_subcore_ctrl(void)
+{
+  WorkerCtrl *pwc;
+  uint32_t msgdata;
+  int data = 0x1234;
+  int ret;
+  void *buf;
+
+  pwc = new WorkerCtrl(WORKER_FILE);
+  /* Initialize MP mutex and bind it to MP task */
+  if (!pwc->getReady()) {
+    printf("WorkerCtrl() constructor failure.\n");
+    return -1;
+  }
+
+  ret = pwc->initMutex(APS_CXX_AUDIO_DETECTKEY_MUTEX);
+  if (ret < 0) {
+    printf("initMutex(mutex) failure. %d\n", ret);
+    return ret;
+  }
+
+  ret = pwc->initMq(APS_CXX_AUDIO_DETECTKEY_MQ);
+  if (ret < 0) {
+    printf("initMq(shm) failure. %d\n", ret);
+    return ret;
+  }
+
+  buf = pwc->initShm(APS_CXX_AUDIO_DETECTKEY_SHM, APS_CXX_AUDIO_DETECTKEY_SHM_SIZE);
+  if (buf == NULL) {
+    printf("initShm() failure. %d\n", ret);
+    return ret;
+  }
+  printf("attached at %08x\n", (uintptr_t)buf);
+
+  ret = pwc->execTask();
+  if (ret < 0) {
+    printf("execTask() failure. %d\n", ret);
+    return ret;
+  }
+
+  for (int loop = 0; loop < 10; loop++) {
+    /* Send command to worker */
+    ret = pwc->send((uint8_t)MSG_ID_APS_CXX_AUDIO_DETECT_ACT, (uint32_t) &data);
+    if (ret < 0) {
+      printf("send() failure. %d\n", ret);
+      return ret;
+    }
+
+    /* Wait for worker message */
+    ret = pwc->receive((uint32_t *)&msgdata);
+    if (ret < 0) {
+      printf("recieve() failure. %d\n", ret);
+      return ret;
+    }
+    printf("Worker response: ID = %d, data = %x\n",
+            ret, *((int *)msgdata));
+              
+    /* Lock mutex for synchronize with worker after it's started */
+    pwc->lock();
+    printf("Worker said: %s\n", buf);
+    pwc->unlock();
+  }
+
+  /* Send command to worker */
+  ret = pwc->send((uint8_t)MSG_ID_APS_CXX_AUDIO_DETECT_EXIT, (uint32_t) &data);
+  if (ret < 0) {
+    printf("send() failure. %d\n", ret);
+    return ret;
+  }
+
+  /* Wait for worker message */
+  ret = pwc->receive((uint32_t *)&msgdata);
+  if (ret < 0) {
+    printf("recieve() failure. %d\n", ret);
+    return ret;
+  }
+  printf("Worker response: ID = %d, data = %x\n",
+          ret, *((int *)msgdata));
+
+  
+  /* Destroy worker */
+  ret = pwc->destroyTask();
+  if (ret < 0) {
+    printf("destroyTask() failure. %d\n", ret);
+    return ret;
+  }
+  printf("Worker exit status = %d\n", ret);
+
+  /* Finalize all of MP objects */
+  delete pwc;
+  return 0;
+}
