@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "_aps_samples\\aps00_sandbox"
+		},
+		{
+			"path": "_aps_samples\\aps01_sandbox"
 		}
 	],
 	"settings": {
