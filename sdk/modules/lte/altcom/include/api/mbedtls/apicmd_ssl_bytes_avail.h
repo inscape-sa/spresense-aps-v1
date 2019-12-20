@@ -1,7 +1,7 @@
 /****************************************************************************
- * modules/lte/altcom/include/api/lte/apicmdhdlr_power.h
+ * modules/lte/altcom/include/api/mbedtls/apicmd_ssl_bytes_avail.h
  *
- *   Copyright 2018 Sony Semiconductor Solutions Corporation
+ *   Copyright 2019 Sony Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,37 +33,35 @@
  *
  ****************************************************************************/
 
-#ifndef __MODULES_LTE_ALTCOM_INCLUDE_API_LTE_APICMDHDLR_POWER_H
-#define __MODULES_LTE_ALTCOM_INCLUDE_API_LTE_APICMDHDLR_POWER_H
+#ifndef __MODULES_LTE_ALTCOM_INCLUDE_API_MBEDTLS_APICMD_SSL_BYTES_AVAIL_H
+#define __MODULES_LTE_ALTCOM_INCLUDE_API_MBEDTLS_APICMD_SSL_BYTES_AVAIL_H
 
-/****************************************************************************
+ /****************************************************************************
  * Included Files
  ****************************************************************************/
 
-#include "evthdl_if.h"
+#include "apicmd.h"
 
 /****************************************************************************
- * Public Function Prototypes
+ * Pre-processor Definitions
  ****************************************************************************/
+
 
 /****************************************************************************
- * Name: apicmdhdlr_power
- *
- * Description:
- *   This function is an API command handler for power on result.
- *
- * Input Parameters:
- *  evt    Pointer to received event.
- *  evlen  Length of received event.
- *
- * Returned Value:
- *   If the API command ID matches APICMDID_POWER_ON_RES,
- *   EVTHDLRC_STARTHANDLE is returned.
- *   Otherwise it returns EVTHDLRC_UNSUPPORTEDEVENT. If an internal error is
- *   detected, EVTHDLRC_INTERNALERROR is returned.
- *
+ * Public Types
  ****************************************************************************/
 
-enum evthdlrc_e apicmdhdlr_power(FAR uint8_t *evt, uint32_t evlen);
+/* This structure discribes the data structure of the API command */
 
-#endif /* __MODULES_LTE_ALTCOM_INCLUDE_API_LTE_APICMDHDLR_POWER_H */
+begin_packed_struct struct apicmd_ssl_bytes_avail_s
+{
+  uint32_t ssl;
+} end_packed_struct;
+
+begin_packed_struct struct apicmd_ssl_bytes_availres_s
+{
+  uint32_t avail_bytes;
+} end_packed_struct;
+
+
+#endif /* __MODULES_LTE_ALTCOM_INCLUDE_API_MBEDTLS_APICMD_SSL_BYTES_AVAIL_H */

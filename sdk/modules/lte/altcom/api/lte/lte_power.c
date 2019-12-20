@@ -1,7 +1,7 @@
 /****************************************************************************
  * modules/lte/altcom/api/lte/lte_power.c
  *
- *   Copyright 2018 Sony Semiconductor Solutions Corporation
+ *   Copyright 2018, 2019 Sony Semiconductor Solutions Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,9 +41,6 @@
 
 #include <stdio.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <nuttx/modem/altmdm.h>
 
 #include "lte/lte_api.h"
 #include "wrkrid.h"
@@ -60,14 +57,13 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_MODEM_DEVICE_PATH
-#  define DEV_PATH CONFIG_MODEM_DEVICE_PATH
-#else
-#  warning "CONFIG_MODEM_DEVICE_PATH not defined"
-#  define DEV_PATH "/dev/altmdm"
-#endif
-
 #define POWERON_DATA_LEN     (0)
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static FAR struct hal_if_s *g_halif = NULL;
 
 /****************************************************************************
  * Private Functions
@@ -92,8 +88,7 @@ static int32_t poweron_status_chg_cb(int32_t new_stat, int32_t old_stat)
 {
   if (new_stat <= ALTCOM_STATUS_INITIALIZED)
     {
-      DBGIF_LOG2_INFO("poweron_status_chg_cb(%d -> %d)\n",
-        old_stat, new_stat);
+      DBGIF_LOG2_INFO("poweron_status_chg_cb(%d -> %d)\n", old_stat, new_stat);
       altcomcallbacks_unreg_cb(APICMDID_POWER_ON);
 
       return ALTCOM_STATUS_REG_CLR;
@@ -160,21 +155,19 @@ static void restart_callback(uint32_t state)
 {
   int ret;
 
-  if (ALTCOM_STATUS_POWER_ON == altcom_get_status())
+  if (ALTCOM_STATUS_POWER_ON == altcom_get_status() ||
+      ALTCOM_STATUS_RESET_ONGOING == altcom_get_status())
     {
-      /* When receive reset packet in current status power on,
-       * This case is modem reset. */
 
-      /* Call restart callback input modem restart */
+      /* When receive reset packet in current status power on or
+       * reset on going, this case is modem reset.
+       */
 
+      /* Call restart callback input modem restart. */
+
+      altcom_set_status(ALTCOM_STATUS_RESET_ONGOING);
       lte_set_report_reason(LTE_RESTART_MODEM_INITIATED);
     }
-  else
-    {
-      lte_set_report_reason(LTE_RESTART_USER_INITIATED);
-    }
-
-  altcom_set_status(ALTCOM_STATUS_RESTART_ONGOING);
 
   /* Abort send apicmd for Release waiting sync API responce. */
 
@@ -185,84 +178,6 @@ static void restart_callback(uint32_t state)
   ret = altcom_runjob(WRKRID_RESTART_CALLBACK_THREAD,
                       restart_callback_job, NULL);
   DBGIF_ASSERT(0 == ret, "Failed to job to worker\n");
-}
-
-/****************************************************************************
- * Name: modem_powerctrl
- *
- * Description:
- *   Power on or off the modem.
- *
- * Input Parameters:
- *  on  "power on" or "power off".
- *
- * Returned Value:
- *   On success, 0 is returned.
- *   On failure, negative value is returned.
- *
- ****************************************************************************/
-
-int32_t modem_powerctrl(bool on)
-{
-  int32_t  ret;
-  int      fd;
-  int      l_errno;
-  int      req;
-
-  /* Open the device */
-
-  fd = open(DEV_PATH, O_WRONLY);
-  if (0 > fd)
-    {
-      DBGIF_LOG2_ERROR("Device %s open failure. %d\n", DEV_PATH, fd);
-      ret = fd;
-    }
-  else
-    {
-
-      if (on)
-        {
-          ret = ioctl(fd, MODEM_IOC_PM_ERR_REGISTERCB,
-                      (unsigned long)restart_callback);
-          if (0 > ret)
-            {
-              /* Store errno */
-
-              l_errno = errno;
-              ret = -l_errno;
-
-              DBGIF_LOG2_ERROR("Failed to ioctl(0x%08x). %d\n", MODEM_IOC_PM_ERR_REGISTERCB, l_errno);
-              
-            }
-        }
-
-      if (on)
-        {
-          req = MODEM_IOC_POWERON;
-        }
-      else
-        {
-          req = MODEM_IOC_POWEROFF;
-        }
-
-      /* Power on the modem */
-
-      ret = ioctl(fd, req, 0);
-      if (0 > ret)
-        {
-          /* Store errno */
-
-          l_errno = errno;
-          ret = -l_errno;
-
-          DBGIF_LOG2_ERROR("Failed to ioctl(0x%08x). %d\n", req, l_errno);
-          
-        }
-
-      close(fd);
-    }
-
-  return ret;
 }
 
 /****************************************************************************
@@ -327,16 +242,24 @@ int32_t lte_power_on(void)
   switch (state)
     {
       case ALTCOM_STATUS_INITIALIZED:
+        if (!g_halif)
+          {
+            ret = -EFAULT;
+            break;
+          }
+
         /* Power on the modem */
 
-        ret = modem_powerctrl(true);
+        ret = g_halif->poweron_modem(g_halif, restart_callback);
         if (ret == 0)
           {
-            altcom_set_status(ALTCOM_STATUS_RESTART_ONGOING);
+            altcom_set_status(ALTCOM_STATUS_POWERON_ONGOING);
+            lte_set_report_reason(LTE_RESTART_USER_INITIATED);
           }
 
         break;
-      case ALTCOM_STATUS_RESTART_ONGOING:
+      case ALTCOM_STATUS_POWERON_ONGOING:
+      case ALTCOM_STATUS_RESET_ONGOING:
         ret = -EINPROGRESS;
         break;
       case ALTCOM_STATUS_POWER_ON:
@@ -378,11 +301,18 @@ int32_t lte_power_off(void)
       case ALTCOM_STATUS_INITIALIZED:
         ret = -EALREADY;
         break;
-      case ALTCOM_STATUS_RESTART_ONGOING:
+      case ALTCOM_STATUS_POWERON_ONGOING:
+      case ALTCOM_STATUS_RESET_ONGOING:
       case ALTCOM_STATUS_POWER_ON:
+        if (!g_halif)
+          {
+            ret = -EFAULT;
+            break;
+          }
+
         /* Power off the modem */
 
-        ret = modem_powerctrl(false);
+        ret = g_halif->poweroff_modem(g_halif);
         if (ret == 0)
           {
             altcom_set_status(ALTCOM_STATUS_INITIALIZED);
@@ -424,4 +354,23 @@ enum evthdlrc_e apicmdhdlr_power(FAR uint8_t *evt, uint32_t evlen)
 {
   return apicmdhdlrbs_do_runjob(evt,
     APICMDID_CONVERT_RES(APICMDID_POWER_ON), poweron_job);
+}
+
+/****************************************************************************
+ * Name: lte_power_set_hal_instance
+ *
+ * Description:
+ *   Set the HAL instance.
+ *
+ * Input Parameters:
+ *  halif  HAL instance.
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void lte_power_set_hal_instance(FAR struct hal_if_s *halif)
+{
+  g_halif = halif;
 }

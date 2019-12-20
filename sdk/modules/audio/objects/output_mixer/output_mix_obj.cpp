@@ -63,7 +63,7 @@ using namespace MemMgrLite;
  * Private Data
  ****************************************************************************/
 
-static pid_t    s_omix_pid = -1;
+static pthread_t s_omix_pid = -1;
 static AsOutputMixMsgQueId_t s_msgq_id;
 static AsOutputMixPoolId_t   s_pool_id;
 static OutputMixObjectTask *s_omix_ojb = NULL;
@@ -77,24 +77,18 @@ static OutputMixObjectTask *s_omix_ojb = NULL;
  ****************************************************************************/
 
 OutputMixObjectTask::OutputMixObjectTask(AsOutputMixMsgQueId_t msgq_id,
-                                         AsOutputMixPoolId_t pool_id) :
-  m_msgq_id(msgq_id),
-  m_output_device(HPOutputDevice)
-  {
-    for (int i = 0; i < HPI2SoutChNum; i++)
-      {
-        m_output_mix_to_hpi2s[i].set_self_dtq(msgq_id.mixer);
-      }
-
-    m_output_mix_to_hpi2s[0].set_apu_dtq(msgq_id.render_path0_filter_dsp);
-    m_output_mix_to_hpi2s[1].set_apu_dtq(msgq_id.render_path1_filter_dsp);
-
-    m_output_mix_to_hpi2s[0].set_pcm_pool_id(pool_id.render_path0_filter_pcm);
-    m_output_mix_to_hpi2s[1].set_pcm_pool_id(pool_id.render_path1_filter_pcm);
-
-    m_output_mix_to_hpi2s[0].set_apu_pool_id(pool_id.render_path0_filter_dsp);
-    m_output_mix_to_hpi2s[1].set_apu_pool_id(pool_id.render_path1_filter_dsp);
-  }
+                                         AsOutputMixPoolId_t pool_id)
+  : m_msgq_id(msgq_id)
+  , m_output_mix_to_hpi2s_0(msgq_id.mixer,
+                            msgq_id.render_path0_filter_dsp,
+                            pool_id.render_path0_filter_dsp,
+                            pool_id.render_path0_filter_pcm)
+  , m_output_mix_to_hpi2s_1(msgq_id.mixer,
+                            msgq_id.render_path1_filter_dsp,
+                            pool_id.render_path1_filter_dsp,
+                            pool_id.render_path1_filter_pcm)
+  , m_output_device(HPOutputDevice)
+{}
 
 /*--------------------------------------------------------------------------*/
 int OutputMixObjectTask::getHandle(MsgPacket* msg)
@@ -278,7 +272,14 @@ void OutputMixObjectTask::parse(MsgPacket* msg)
         {
           case HPOutputDevice:
           case I2SOutputDevice:
-            m_output_mix_to_hpi2s[getHandle(msg)].parse(msg);
+            if (getHandle(msg) == 0)
+              {
+                m_output_mix_to_hpi2s_0.parse(msg);
+              }
+            else
+              {
+                m_output_mix_to_hpi2s_1.parse(msg);
+              }
             break;
 
           case A2dpSrcOutputDevice:
@@ -300,10 +301,9 @@ void OutputMixObjectTask::parse(MsgPacket* msg)
  ****************************************************************************/
 
 /*--------------------------------------------------------------------------*/
-int AS_OutputMixObjEntry(int argc, char *argv[])
+FAR void AS_OutputMixObjEntry(FAR void *arg)
 {
   OutputMixObjectTask::create(s_msgq_id, s_pool_id);
-  return 0;
 }
 
 /*--------------------------------------------------------------------------*/
@@ -325,11 +325,28 @@ static bool CreateOutputMixer(AsOutputMixMsgQueId_t msgq_id, AsOutputMixPoolId_t
   F_ASSERT(err_code == ERR_OK);
   que->reset();
 
-  s_omix_pid = task_create("OMIX_OBJ",
-                           150, 1024 * 3,
-                           AS_OutputMixObjEntry,
-                           NULL);
-  if (s_omix_pid < 0)
+  /* Init pthread attributes object. */
+
+  pthread_attr_t attr;
+
+  pthread_attr_init(&attr);
+
+  /* Set pthread scheduling parameter. */
+
+  struct sched_param sch_param;
+
+  sch_param.sched_priority = 150;
+  attr.stacksize           = 1024 * 3;
+
+  pthread_attr_setschedparam(&attr, &sch_param);
+
+  /* Create thread. */
+
+  int ret = pthread_create(&s_omix_pid,
+                           &attr,
+                           (pthread_startroutine_t)AS_OutputMixObjEntry,
+                           (pthread_addr_t)NULL);
+  if (ret < 0)
     {
       OUTPUT_MIX_ERR(AS_ATTENTION_SUB_CODE_TASK_CREATE_ERROR);
       return false;
@@ -561,12 +578,15 @@ bool AS_DeactivateOutputMixer(uint8_t handle, FAR AsDeactivateOutputMixer *deact
 /*--------------------------------------------------------------------------*/
 bool AS_DeleteOutputMix(void)
 {
-  if (s_omix_pid < 0)
+  if (s_omix_pid == INVALID_PROCESS_ID)
     {
       return false;
     }
 
-  task_delete(s_omix_pid);
+  pthread_cancel(s_omix_pid);
+  pthread_join(s_omix_pid, NULL);
+
+  s_omix_pid = INVALID_PROCESS_ID;
 
   if (s_omix_ojb != NULL)
     {

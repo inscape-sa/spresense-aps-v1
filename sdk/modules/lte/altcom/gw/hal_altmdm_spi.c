@@ -47,6 +47,7 @@
 #include <nuttx/modem/altmdm.h>
 #include <nuttx/arch.h>
 #include <nuttx/sched.h>
+#include <arch/board/common/cxd56_altmdm.h>
 
 #include "dbg_if.h"
 #include "buffpoolwrapper.h"
@@ -82,16 +83,123 @@
 
 struct hal_altmdm_spi_obj_s
 {
-  struct hal_if_s                   hal_if;
-  FAR uint8_t                       *buff;
-  FAR uint8_t                       *rp;
-  uint16_t                          datalen;
-  sys_mutex_t                       objmtx;
+  struct hal_if_s  hal_if;
+  FAR uint8_t     *buff;
+  FAR uint8_t     *rp;
+  uint16_t         datalen;
+  sys_mutex_t      objmtx;
 };
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static hal_restart_cb_t g_hal_restart_cb = NULL;
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: restart_callback
+ *
+ * Description:
+ *   This function is an restart callback.
+ *
+ * Input Parameters:
+ *  state    Error state.
+ *
+ * Returned Value:
+ *   None.
+ *
+ ****************************************************************************/
+
+static void restart_callback(uint32_t state)
+{
+  if (g_hal_restart_cb)
+    {
+      g_hal_restart_cb(state);
+    }
+  else
+    {
+      DBGIF_LOG_INFO("Restart callback not registered\n");
+    }
+}
+
+/****************************************************************************
+ * Name: modem_powerctrl
+ *
+ * Description:
+ *   Power on or off the modem.
+ *
+ * Input Parameters:
+ *  on  "power on" or "power off".
+ *
+ * Returned Value:
+ *   On success, 0 is returned.
+ *   On failure, negative value is returned.
+ *
+ ****************************************************************************/
+
+static int32_t modem_powerctrl(bool on)
+{
+  int32_t  ret;
+  int      fd;
+  int      l_errno;
+  int      req;
+
+  /* Open the device */
+
+  fd = open(DEV_PATH, O_WRONLY);
+  if (0 > fd)
+    {
+      DBGIF_LOG2_ERROR("Device %s open failure. %d\n", DEV_PATH, fd);
+      ret = fd;
+    }
+  else
+    {
+      if (on)
+        {
+          ret = ioctl(fd, MODEM_IOC_PM_ERR_REGISTERCB,
+                      (unsigned long)restart_callback);
+          if (0 > ret)
+            {
+              /* Store errno */
+
+              l_errno = errno;
+              ret = -l_errno;
+
+              DBGIF_LOG2_ERROR("Failed to ioctl(0x%08x). %d\n", MODEM_IOC_PM_ERR_REGISTERCB, l_errno);
+            }
+        }
+
+      if (on)
+        {
+          req = MODEM_IOC_POWERON;
+        }
+      else
+        {
+          req = MODEM_IOC_POWEROFF;
+        }
+
+      /* Power on the modem */
+
+      ret = ioctl(fd, req, 0);
+      if (0 > ret)
+        {
+          /* Store errno */
+
+          l_errno = errno;
+          ret = -l_errno;
+
+          DBGIF_LOG2_ERROR("Failed to ioctl(0x%08x). %d\n", req, l_errno);
+        }
+
+      close(fd);
+    }
+
+  return ret;
+}
 
 /****************************************************************************
  * Name: spi_send
@@ -413,6 +521,100 @@ static int32_t hal_altmdm_spi_freebuff(
 }
 
 /****************************************************************************
+ * Name: hal_altmdm_spi_poweron
+ *
+ * Description:
+ *   Power on the modem.
+ *
+ * Input Parameters:
+ *   restart_cb  Callback funcion for boot complete.
+ *
+ * Returned Value:
+ *   If the process succeeds, it returns 0.
+ *   Otherwise errno is returned.
+ *
+ ****************************************************************************/
+
+static int32_t hal_altmdm_spi_poweron(
+  FAR struct hal_if_s *thiz, hal_restart_cb_t restart_cb)
+{
+  int32_t ret;
+
+  if ((!thiz) || (!restart_cb))
+    {
+      return -EINVAL;
+    }
+
+  g_hal_restart_cb = restart_cb;
+
+  ret = modem_powerctrl(true);
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: hal_altmdm_spi_poweroff
+ *
+ * Description:
+ *   Power off the modem.
+ *
+ * Input Parameters:
+ *
+ * Returned Value:
+ *   If the process succeeds, it returns 0.
+ *   Otherwise errno is returned.
+ *
+ ****************************************************************************/
+
+static int32_t hal_altmdm_spi_poweroff(FAR struct hal_if_s *thiz)
+{
+  int32_t ret;
+
+  if (!thiz)
+    {
+      return -EINVAL;
+    }
+
+  g_hal_restart_cb = NULL;
+
+  ret = modem_powerctrl(false);
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: hal_altmdm_spi_reset
+ *
+ * Description:
+ *   Reset the modem.
+ *
+ * Input Parameters:
+ *
+ * Returned Value:
+ *   If the process succeeds, it returns 0.
+ *   Otherwise errno is returned.
+ *
+ ****************************************************************************/
+
+static int32_t hal_altmdm_spi_reset(FAR struct hal_if_s *thiz)
+{
+  int32_t ret;
+
+  if (!thiz)
+    {
+      return -EINVAL;
+    }
+
+  ret = modem_powerctrl(false);
+  if (ret == 0)
+    {
+      ret = modem_powerctrl(true);
+    }
+
+  return ret;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -445,19 +647,23 @@ FAR struct hal_if_s *hal_altmdm_spi_create(void)
       return NULL;
     }
 
-  obj->hal_if.send      = hal_altmdm_spi_send;
-  obj->hal_if.recv      = hal_altmdm_spi_recv;
-  obj->hal_if.abortrecv = hal_altmdm_spi_abortrecv;
-  obj->hal_if.lock      = hal_altmdm_spi_lock;
-  obj->hal_if.unlock    = hal_altmdm_spi_unlock;
-  obj->hal_if.allocbuff = hal_altmdm_spi_allocbuff;
-  obj->hal_if.freebuff  = hal_altmdm_spi_freebuff;
+  obj->hal_if.send           = hal_altmdm_spi_send;
+  obj->hal_if.recv           = hal_altmdm_spi_recv;
+  obj->hal_if.abortrecv      = hal_altmdm_spi_abortrecv;
+  obj->hal_if.lock           = hal_altmdm_spi_lock;
+  obj->hal_if.unlock         = hal_altmdm_spi_unlock;
+  obj->hal_if.allocbuff      = hal_altmdm_spi_allocbuff;
+  obj->hal_if.freebuff       = hal_altmdm_spi_freebuff;
+  obj->hal_if.poweron_modem  = hal_altmdm_spi_poweron;
+  obj->hal_if.poweroff_modem = hal_altmdm_spi_poweroff;
+  obj->hal_if.reset_modem    = hal_altmdm_spi_reset;
 
   ret = sys_create_mutex(&obj->objmtx, &param);
   if (ret < 0)
     {
       DBGIF_LOG1_ERROR("Failed to create mutex :%d\n", ret);
-      goto errout;
+      (void)BUFFPOOL_FREE(obj);
+      return NULL;
     }
   
   obj->buff =
@@ -466,18 +672,24 @@ FAR struct hal_if_s *hal_altmdm_spi_create(void)
     {
       DBGIF_LOG_ERROR("Failed to allocate memory\n");
       (void)sys_delete_mutex(&obj->objmtx);
-      goto errout;
+      (void)BUFFPOOL_FREE(obj);
+      return NULL;
     }
 
   obj->datalen = 0;
   obj->rp      = 0;
 
+  ret = board_altmdm_initialize(DEV_PATH);
+  if (ret < 0)
+    {
+      DBGIF_LOG1_ERROR("Failed to board_altmdm_initialize() :%d\n", ret);
+      (void)sys_delete_mutex(&obj->objmtx);
+      (void)BUFFPOOL_FREE(obj->buff);
+      (void)BUFFPOOL_FREE(obj);
+      return NULL;
+    }
+
   return (FAR struct hal_if_s *)obj;
-
-errout:
-  (void)BUFFPOOL_FREE(obj);
-
-  return NULL;
 }
 
 /****************************************************************************
@@ -504,6 +716,12 @@ int32_t hal_altmdm_spi_delete(FAR struct hal_if_s *thiz)
     {
       DBGIF_LOG_ERROR("null parameter.\n");
       return -EINVAL;
+    }
+
+  ret = board_altmdm_uninitialize();
+  if (ret < 0)
+    {
+      DBGIF_LOG1_ERROR("Failed to board_altmdm_uninitialize() :%d\n", ret);
     }
 
   obj = (FAR struct hal_altmdm_spi_obj_s *)thiz;
