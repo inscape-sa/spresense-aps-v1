@@ -11,6 +11,8 @@
 #include <asmp/mpshm.h>
 #include <sys/stat.h>
 
+#include "aps_cxx_audio_detect_class.h"
+
 #include "memutils/os_utils/chateau_osal.h"
 #include "memutils/simple_fifo/CMN_SimpleFifo.h"
 #include "memutils/memory_manager/MemHandle.h"
@@ -191,7 +193,7 @@ static WAVHEADER  s_wav_header;
  * Public Functions 
  *****************************************************************/
 /** Start Programs */
-extern "C" int aps_cxx_audio_detect_main(int argc, char *argv[])
+extern "C" int aps_cxx_audio_detect_class(int argc, char *argv[])
 {
   int ret;
   WorkerCtrl *pwc;

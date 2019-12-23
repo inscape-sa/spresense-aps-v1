@@ -1,29 +1,32 @@
--include $(TOPDIR)/Make.defs
--include $(SDKDIR)/Make.defs
+# Application makefile
 
-CONFIG_APS_CXX_AUDIO_DETECT_PRIORITY ?= SCHED_PRIORITY_DEFAULT
-CONFIG_APS_CXX_AUDIO_DETECT_STACKSIZE ?= 2048
+# Command name (Public function 'int <APPNAME>_main(void)' required)
+APPNAME =
 
-APPNAME = aps_cxx_audio_detect
-PRIORITY = $(CONFIG_APS_CXX_AUDIO_DETECT_PRIORITY)
-STACKSIZE = $(CONFIG_APS_CXX_AUDIO_DETECT_STACKSIZE)
+# Application execute priority (Range: 0 ~ 255, Default: 100)
+PRIORITY =
 
-# change .c -> .cxx
-MAINSRC = aps_cxx_audio_detect_main.cxx
+# Application stack memory size (Default: 2048)
+STACKSIZE =
+
+# Main source code
+MAINSRC = aps_cxx_audio_detect_main.c
+
+# Additional C source files (*.c)
+CSRCS =
+
+# Additional C++ source files (*.cxx)
+CXXSRCS = 
+#CXXSRCS += aps_cxx_audio_detect_class.cxx
+#CXXSRCS += worker_ctrl.cxx
+
+# Additional assembler source files (*.S)
 ASRCS =
-CSRCS = 
-# add $(filter-out $(MAINSRC),$(wildcard *.c) $(wildcard */*.c)) in CXXSRCS
-CXXSRCS = $(filter-out $(MAINSRC),$(wildcard *.c) $(wildcard */*.c)) $(wildcard *.cpp) $(wildcard */*.cpp) $(wildcard *.cxx) $(wildcard */*.cxx)
 
-CFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
-CXXFLAGS += $(foreach inc,$(wildcard ../*/include),-I$(inc))
+# C compiler flags
+CFLAGS =
 
-## for Memory Utility
-CXXFLAGS += -D_POSIX
-CXXFLAGS += -DUSE_MEMMGR_FENCE
-CXXFLAGS += -DATTENTION_USE_FILENAME_LINE
+# C++ compiler flags
+CXXFLAGS =
 
-CONFIG_APS_CXX_AUDIO_DETECT_PROGNAME ?= aps_cxx_audio_detect$(EXEEXT)
-PROGNAME = $(CONFIG_APS_CXX_AUDIO_DETECT_PROGNAME)
-
-include $(APPDIR)/Application.mk
+include $(APPDIR)/.vscode/application.mk

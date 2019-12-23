@@ -20,6 +20,37 @@
                 "load",
                 "monitor reset halt"
             ]
+        },
+        {
+            "name": "Main Core",
+            "cwd": "${workspaceFolder}/sdk",
+            "executable": "./nuttx",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "cxd5602.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder}\\sdk\\tools"
+            ],
+            "svdFile": "${workspaceFolder}\\sdk\\tools\\SVD\\cxd5602.svd",
+            "debuggerArgs": [
+                "-ix",
+                ".vscode/.gdbinit"
+            ],
+            "preLaunchTask": "Clean flash",
+            "overrideLaunchCommands": [
+                "monitor reset",
+                "monitor halt",
+                "load"
+            ],
+            "overrideRestartCommands": [
+                "monitor sleep 3000",
+                "monitor halt",
+                "load"
+            ]
         }
     ]
 }

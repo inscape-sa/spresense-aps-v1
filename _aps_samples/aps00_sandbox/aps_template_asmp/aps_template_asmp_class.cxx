@@ -21,7 +21,7 @@
 #define err(format, ...)        fprintf(stderr, format, ##__VA_ARGS__)
 
 /** Start Programs */
-extern "C" int aps_template_asmp_main(int argc, char *argv[])
+extern "C" int aps_template_asmp_class(int argc, char *argv[])
 {
   WorkerCtrl *pwc;
   uint32_t msgdata;
