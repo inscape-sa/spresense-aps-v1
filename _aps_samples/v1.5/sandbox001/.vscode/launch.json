@@ -1,16 +1,7 @@
 {
     "version": "0.2.0",
     "configurations": [
-        {
-            "name": "Sub Core 1",
-            "cwd": "${workspaceFolder:sandbox001}/aps_template_asmp_worker/",
-            "executable": "./aps_template_asmp.debug",
-            "request": "attach",
-            "type": "cortex-debug",
-            "servertype": "external",
-            "svdFile": "${workspaceFolder:spresense}/sdk/tools/SVD/cxd5602.svd",
-            "gdbTarget": "localhost:50001"
-        },
+        
         {
             "name": "Main Core",
             "cwd": "${workspaceFolder:sandbox001}",
@@ -20,8 +11,7 @@
             "servertype": "openocd",
             "configFiles": [
                 "interface/cmsis-dap.cfg",
-                "cxd5602.cfg",
-                "cxd5602_sub1.cfg"
+                "cxd5602.cfg"
             ],
             "searchDir": [
                 "${workspaceFolder:spresense}\\sdk\\tools"
