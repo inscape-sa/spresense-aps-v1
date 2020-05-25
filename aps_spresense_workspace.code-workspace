@@ -4,18 +4,21 @@
 			"path": "."
 		},
 		{
-			"path": "_aps_samples\\aps00_sandbox"
+			"path": "_aps_samples\\aps_board_check"
+		},
+		{
+			"path": "_aps_samples\\aps_board_check_GPIO-MIC"
 		}
 	],
 	"settings": {
-		"spresense.sdk.path": "/c/msys64/home/aoyag/spresense",
-		"spresense.sdk.tools.path": "c:\\msys64\\home\\aoyag\\spresense\\sdk\\tools",
+		"spresense.sdk.path": "/c/msys64/home/aoyag/spresense-et",
+		"spresense.sdk.tools.path": "c:\\msys64\\home\\aoyag\\spresense-et\\sdk\\tools",
 		"terminal.integrated.shell.windows": "c:\\msys64\\usr\\bin\\bash.exe",
 		"terminal.integrated.env.windows": {
-			"PATH": "/home/aoyag/spresenseenv/usr/bin:/usr/local/bin:/usr/bin:/bin:/opt/bin:/c/Windows/System32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0/:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
+			"PATH": "/opt/spresenseenv/usr/bin:/usr/local/bin:/usr/bin:/bin:/opt/bin:/c/Windows/System32:/c/Windows:/c/Windows/System32/Wbem:/c/Windows/System32/WindowsPowerShell/v1.0/:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
 		},
-		"spresense.env.toolchain.path": "c:\\msys64\\home\\aoyag\\spresenseenv\\usr\\bin",
-		"cortex-debug.armToolchainPath": "c:\\msys64\\home\\aoyag\\spresenseenv\\usr\\bin",
-		"cortex-debug.openocdPath": "c:\\msys64\\home\\aoyag\\spresenseenv\\usr\\bin\\openocd"
+		"spresense.env.toolchain.path": "c:\\msys64\\opt\\spresenseenv\\usr\\bin",
+		"cortex-debug.armToolchainPath": "c:\\msys64\\opt\\spresenseenv\\usr\\bin",
+		"cortex-debug.openocdPath": "c:\\msys64\\opt\\spresenseenv\\usr\\bin\\openocd"
 	}
 }

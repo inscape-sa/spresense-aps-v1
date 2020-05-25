@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Main Core",
+            "cwd": "${workspaceFolder:aps_board_check_GPIO-MIC}",
+            "executable": "./out/${workspaceFolderBasename}.nuttx",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "cxd5602.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder:spresense-et}\\sdk\\tools"
+            ],
+            "svdFile": "${workspaceFolder:spresense-et}\\sdk\\tools\\SVD\\cxd5602.svd",
+            "debuggerArgs": [
+                "-ix",
+                ".vscode/.gdbinit"
+            ],
+            "preLaunchTask": "Clean flash",
+            "overrideLaunchCommands": [
+                "monitor reset",
+                "monitor halt",
+                "load"
+            ],
+            "overrideRestartCommands": [
+                "monitor sleep 3000",
+                "monitor halt",
+                "load"
+            ]
+        }
+    ]
+}

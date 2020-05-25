@@ -1,0 +1,106 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build kernel",
+			"type": "shell",
+			"command": ".vscode/build.sh buildkernel",
+			"options": {
+				"env": {
+					"SDK_PATH": "${config:spresense.sdk.path}",
+					"ISAPPFOLDER": "true"
+				}
+			},
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Build application",
+			"type": "shell",
+			"command": ".vscode/build.sh build",
+			"options": {
+				"env": {
+					"SDK_PATH": "${config:spresense.sdk.path}",
+					"ISAPPFOLDER": "true"
+				}
+			},
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Clean kernel",
+			"type": "shell",
+			"command": ".vscode/build.sh cleankernel",
+			"options": {
+				"env": {
+					"SDK_PATH": "${config:spresense.sdk.path}",
+					"ISAPPFOLDER": "true"
+				}
+			},
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Clean application",
+			"type": "shell",
+			"command": ".vscode/build.sh clean",
+			"options": {
+				"env": {
+					"SDK_PATH": "${config:spresense.sdk.path}",
+					"ISAPPFOLDER": "true"
+				}
+			},
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Build and flash",
+			"type": "shell",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"Build application",
+				"Flash worker"
+			],
+			"command": "cd \"${workspaceFolder}\";${config:spresense.sdk.path}/sdk/tools/flash.sh -c ${config:spresense.serial.port} -b ${config:spresense.flashing.speed} out/*.nuttx.spk",
+			"group": "test",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Flash worker",
+			"type": "shell",
+			"command": "cd \"${workspaceFolder}\";if [ \"`echo out/worker/*`\" != \"out/worker/*\" ]; then ${config:spresense.sdk.path}/sdk/tools/flash.sh -w -c ${config:spresense.serial.port} -b ${config:spresense.flashing.speed} out/worker/*; fi;",
+			"group": "test",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Clean flash",
+			"type": "shell",
+			"command": ".vscode/clean_flash.sh -s ${config:spresense.sdk.path} -c ${config:spresense.serial.port}",
+			"group": "test",
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Burn bootloader",
+			"type": "shell",
+			"command": "${config:spresense.sdk.path}/sdk/tools/flash.sh -l ${config:spresense.sdk.path}/firmware/spresense -c ${config:spresense.serial.port} -b ${config:spresense.flashing.speed}",
+			"group": "test",
+			"problemMatcher": [
+				"$gcc"
+			]
+		}
+	]
+}
