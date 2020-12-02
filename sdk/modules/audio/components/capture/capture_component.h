@@ -37,7 +37,6 @@
 #define CAPTURE_COMPONENT_H
 
 #include <nuttx/arch.h>
-#include <arch/chip/cxd56_audio.h>
 
 #include "wien2_common_defs.h"
 #include "wien2_internal_packet.h"
@@ -50,6 +49,7 @@
 #include "memutils/message/Message.h"
 #include "memutils/memory_manager/MemHandle.h"
 
+#include "audio/audio_capture_api.h"
 #include "audio/audio_message_types.h"
 
 #include "dma_controller/audio_dma_drv_api.h"
@@ -120,7 +120,7 @@ struct ExecCaptureComponentParam
 struct InitCaptureComponentParam
 {
   uint8_t          capture_ch_num;
-  AudioPcmBitWidth capture_bit_width;
+  uint8_t          capture_bit_width;
   uint8_t          preset_num;
   CaptureDoneCB    callback;
   CaptureErrorCB   err_callback;

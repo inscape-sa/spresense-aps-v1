@@ -51,13 +51,10 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define ALTCOMBS_EDRX_ACTTYPE_INVALID_VAL (0xFF)
-#define ALTCOMBS_EDRX_ACTTYPE_MIN         (APICMD_EDRX_ACTTYPE_WBS1)
-#define ALTCOMBS_EDRX_ACTTYPE_MAX         (APICMD_EDRX_ACTTYPE_WBS1)
-#define ALTCOMBS_EDRX_CYCLE_MIN           (LTE_EDRX_CYC_512)
-#define ALTCOMBS_EDRX_CYCLE_MAX           (LTE_EDRX_CYC_262144)
-#define ALTCOMBS_EDRX_PTW_MIN             (LTE_EDRX_PTW_128)
-#define ALTCOMBS_EDRX_PTW_MAX             (LTE_EDRX_PTW_2048)
+#define ALTCOMBS_EDRX_CYCLE_WBS1_MIN      (LTE_EDRX_CYC_512)
+#define ALTCOMBS_EDRX_CYCLE_WBS1_MAX      (LTE_EDRX_CYC_262144)
+#define ALTCOMBS_EDRX_PTW_WBS1_MIN        (LTE_EDRX_PTW_128)
+#define ALTCOMBS_EDRX_PTW_WBS1_MAX        (LTE_EDRX_PTW_2048)
 #define ALTCOMBS_PSM_UNIT_T3324_MIN       (LTE_PSM_T3324_UNIT_2SEC)
 #define ALTCOMBS_PSM_UNIT_T3324_MAX       (LTE_PSM_T3324_UNIT_6MIN)
 #define ALTCOMBS_PSM_UNIT_T3412_MIN       (LTE_PSM_T3412_UNIT_2SEC)
@@ -141,6 +138,37 @@ static int32_t altcombs_free_cbblock(FAR struct altcombs_cb_block *cb_block)
   (void)BUFFPOOL_FREE(cb_block);
 
   return 0;
+}
+
+/****************************************************************************
+ * Name: check_arrydigitnum
+ *
+ * Description:
+ *   Evaluate the validity of each digit of arrayed numerical value.
+ *
+ * Input Parameters:
+ *  number    Array type number.
+ *  digit     @number digit.
+ *
+ * Returned Value:
+ *   Returns true if everything is valid. Otherwise it returns false.
+ *
+ ****************************************************************************/
+
+static bool altcombs_check_arrydigitnum(FAR uint8_t number[], uint8_t digit)
+{
+  uint8_t cnt;
+
+  for (cnt = 0; cnt < digit; cnt++)
+    {
+      if (number[cnt] < APICMD_CELLINFO_DIGIT_NUM_MIN ||
+        APICMD_CELLINFO_DIGIT_NUM_MAX < number[cnt])
+        {
+          return false;
+        }
+    }
+
+  return true;
 }
 
 /****************************************************************************
@@ -559,25 +587,28 @@ int32_t altcombs_check_edrx(struct apicmd_edrxset_s *set)
 
   if (LTE_ENABLE == set->enable)
     {
-      if (set->acttype < APICMD_EDRX_ACTTYPE_NOTUSE ||
-          set->acttype > APICMD_EDRX_ACTTYPE_NBS1)
+      if (APICMD_EDRX_ACTTYPE_NOTUSE != set->acttype &&
+          APICMD_EDRX_ACTTYPE_WBS1 != set->acttype)
         {
           DBGIF_LOG1_ERROR("Invalid acttype :%d\n", set->acttype);
           return -EINVAL;
         }
 
-      if (set->edrx_cycle < LTE_EDRX_CYC_512 ||
-          set->edrx_cycle > LTE_EDRX_CYC_262144)
+      if (LTE_EDRX_ACTTYPE_WBS1 == set->acttype)
         {
-          DBGIF_LOG1_ERROR("Invalid cycle :%d\n", set->edrx_cycle);
-          return -EINVAL;
-        }
+          if (set->edrx_cycle < ALTCOMBS_EDRX_CYCLE_WBS1_MIN ||
+              set->edrx_cycle > ALTCOMBS_EDRX_CYCLE_WBS1_MAX)
+            {
+              DBGIF_LOG1_ERROR("Invalid cycle :%d\n", set->edrx_cycle);
+              return -EINVAL;
+            }
 
-      if (set->ptw_val < LTE_EDRX_PTW_128 ||
-          set->ptw_val > LTE_EDRX_PTW_2048)
-        {
-          DBGIF_LOG1_ERROR("Invalid PTW :%d\n", set->ptw_val);
-          return -EINVAL;
+          if (set->ptw_val < ALTCOMBS_EDRX_PTW_WBS1_MIN ||
+              set->ptw_val > ALTCOMBS_EDRX_PTW_WBS1_MAX)
+            {
+              DBGIF_LOG1_ERROR("Invalid PTW :%d\n", set->ptw_val);
+              return -EINVAL;
+            }
         }
     }
 
@@ -605,14 +636,15 @@ int32_t altcombs_set_edrx(struct apicmd_edrxset_s *cmd_edrx,
 {
   uint8_t edrx_acttype_table[] =
     {
-      ALTCOMBS_EDRX_ACTTYPE_INVALID_VAL,
-      ALTCOMBS_EDRX_ACTTYPE_INVALID_VAL,
-      ALTCOMBS_EDRX_ACTTYPE_INVALID_VAL,
-      ALTCOMBS_EDRX_ACTTYPE_INVALID_VAL,
+      LTE_EDRX_ACTTYPE_NOTUSE,
+      LTE_EDRX_ACTTYPE_ECGSMIOT,
+      LTE_EDRX_ACTTYPE_GSM,
+      LTE_EDRX_ACTTYPE_IU,
       LTE_EDRX_ACTTYPE_WBS1,
+      LTE_EDRX_ACTTYPE_NBS1
     };
 
-  uint8_t edrx_cycle_table[] =
+  const uint8_t edrx_cycle_wbs1_table[] =
     {
       LTE_EDRX_CYC_512,
       LTE_EDRX_CYC_1024,
@@ -630,7 +662,7 @@ int32_t altcombs_set_edrx(struct apicmd_edrxset_s *cmd_edrx,
       LTE_EDRX_CYC_262144,
     };
 
-  uint8_t edrx_ptw_table[] =
+  const uint8_t edrx_ptw_wbs1_table[] =
     {
       LTE_EDRX_PTW_128,
       LTE_EDRX_PTW_256,
@@ -657,20 +689,32 @@ int32_t altcombs_set_edrx(struct apicmd_edrxset_s *cmd_edrx,
 
   if (LTE_ENABLE == cmd_edrx->enable)
     {
-      if ((ALTCOMBS_EDRX_ACTTYPE_MIN > cmd_edrx->acttype ||
-          ALTCOMBS_EDRX_ACTTYPE_MAX < cmd_edrx->acttype) ||
-          (ALTCOMBS_EDRX_CYCLE_MIN > cmd_edrx->edrx_cycle ||
-          ALTCOMBS_EDRX_CYCLE_MAX < cmd_edrx->edrx_cycle) ||
-          (ALTCOMBS_EDRX_PTW_MIN > cmd_edrx->ptw_val ||
-          ALTCOMBS_EDRX_PTW_MAX < cmd_edrx->ptw_val))
+      if (APICMD_EDRX_ACTTYPE_NOTUSE != cmd_edrx->acttype &&
+          APICMD_EDRX_ACTTYPE_WBS1 != cmd_edrx->acttype)
         {
+          DBGIF_LOG_ERROR("cmd_edrx erorr\n");
           return -EINVAL;
+        }
+
+      if (APICMD_EDRX_ACTTYPE_WBS1 == cmd_edrx->acttype)
+        {
+          if (ALTCOMBS_EDRX_CYCLE_WBS1_MIN > cmd_edrx->edrx_cycle ||
+              ALTCOMBS_EDRX_CYCLE_WBS1_MAX < cmd_edrx->edrx_cycle ||
+              ALTCOMBS_EDRX_PTW_WBS1_MIN > cmd_edrx->ptw_val ||
+              ALTCOMBS_EDRX_PTW_WBS1_MAX < cmd_edrx->ptw_val)
+            {
+              DBGIF_LOG_ERROR("cmd_edrx erorr\n");
+              return -EINVAL;
+            }
         }
 
       lte_edrx->enable = LTE_ENABLE;
       lte_edrx->act_type = edrx_acttype_table[cmd_edrx->acttype];
-      lte_edrx->edrx_cycle = edrx_cycle_table[cmd_edrx->edrx_cycle];
-      lte_edrx->ptw_val = edrx_ptw_table[cmd_edrx->ptw_val];
+      if (APICMD_EDRX_ACTTYPE_WBS1 == cmd_edrx->acttype)
+        {
+          lte_edrx->edrx_cycle = edrx_cycle_wbs1_table[cmd_edrx->edrx_cycle];
+          lte_edrx->ptw_val = edrx_ptw_wbs1_table[cmd_edrx->ptw_val];
+        }
     }
   else
     {
@@ -821,6 +865,76 @@ int32_t altcombs_set_quality(FAR lte_quality_t *data,
         }
     }
   return 0;
+}
+
+/****************************************************************************
+ * Name: altcombs_set_cellinfo
+ *
+ * Description:
+ *   Set lte_cellinfo_t.
+ *
+ * Input Parameters:
+ *   cmd_cellinfo  Pointer of api command cellinfo struct.
+ *   api_cellinfo  Pointer of lte_cellinfo_t.
+ *
+ * Returned Value:
+ *   When check success is returned 0.
+ *   When check failed return negative value.
+ *
+ ****************************************************************************/
+
+void altcombs_set_cellinfo(
+          FAR struct apicmd_cmddat_cellinfo_s *cmd_cellinfo,
+          FAR lte_cellinfo_t *api_cellinfo)
+{
+  if (cmd_cellinfo->valid == LTE_VALID)
+    {
+      if (ntohl(cmd_cellinfo->cell_id) > APICMD_CELLINFO_CELLID_MAX )
+        {
+          DBGIF_LOG1_ERROR("cmd_cellinfo->cell_id error:%d\n",
+                           ntohl(cmd_cellinfo->cell_id));
+          api_cellinfo->valid = LTE_INVALID;
+        }
+      else if (ntohl(cmd_cellinfo->earfcn) > APICMD_CELLINFO_EARFCN_MAX )
+        {
+          DBGIF_LOG1_ERROR("cmd_cellinfo->earfcn error:%d\n",
+                           ntohl(cmd_cellinfo->earfcn));
+          api_cellinfo->valid = LTE_INVALID;
+        }
+      else if (!altcombs_check_arrydigitnum(cmd_cellinfo->mcc, LTE_MCC_DIGIT))
+        {
+          DBGIF_LOG_ERROR("cmd_cellinfo->mcc error\n");
+          api_cellinfo->valid = LTE_INVALID;
+        }
+      else if (
+        cmd_cellinfo->mnc_digit < APICMD_CELLINFO_MNC_DIGIT_MIN ||
+        cmd_cellinfo->mnc_digit > LTE_MNC_DIGIT_MAX)
+        {
+          DBGIF_LOG1_ERROR("cmd_cellinfo->mnc_digit error:%d\n",
+                           cmd_cellinfo->mnc_digit);
+          api_cellinfo->valid = LTE_INVALID;
+        }
+      else if (!altcombs_check_arrydigitnum(cmd_cellinfo->mnc,
+               cmd_cellinfo->mnc_digit))
+        {
+          DBGIF_LOG_ERROR("cmd_cellinfo->mnc error\n");
+          api_cellinfo->valid = LTE_INVALID;
+        }
+      else
+        {
+          api_cellinfo->valid = LTE_VALID;
+          api_cellinfo->phycell_id = ntohl(cmd_cellinfo->cell_id);
+          api_cellinfo->earfcn     = ntohl(cmd_cellinfo->earfcn);
+          memcpy(api_cellinfo->mcc, cmd_cellinfo->mcc, LTE_MCC_DIGIT);
+          api_cellinfo->mnc_digit  = cmd_cellinfo->mnc_digit;
+          memcpy(api_cellinfo->mnc, cmd_cellinfo->mnc, 
+                 cmd_cellinfo->mnc_digit);
+        }
+    }
+  else
+    {
+      api_cellinfo->valid = LTE_INVALID;
+    }
 }
 
 /****************************************************************************

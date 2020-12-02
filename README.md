@@ -20,6 +20,7 @@ $ git submodule foreach git checkout master
 ├── examples  - Spresense SDK examples
 ├── nuttx     - NuttX original kernel source + CXD5602 port.
 └── sdk       - Spresense SDK source and PC tools.
+ └─ apps      - NuttX original tools and sample applications.
 ```
 
 # Using docker
@@ -65,17 +66,12 @@ Go to the folder where you cloned the {SDK_FULL}, and enter the `sdk` folder nam
 ``` bash
 $ cd spresense/sdk
 ```
-Set up the nuttx kernel configuration
-``` bash
-$ tools/config.py --kernel release
-```
 Set up the SDK configuration
 ``` bash
 $ tools/config.py examples/hello
 ```
 Build the example image:
 ``` bash
-$ make buildkernel
 $ make
 ```
 

@@ -52,6 +52,8 @@
 #include "apicmd_activatepdn.h"
 #include "lte_activatepdn.h"
 
+#include "lte/altcom/altcom_api.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -410,6 +412,27 @@ errout:
 
 int32_t lte_activate_pdn_sync(lte_apn_setting_t *apn, lte_pdn_t *pdn)
 {
+  return altcom_activate_pdn_sync(apn, pdn);
+}
+
+/****************************************************************************
+ * Name: altcom_activate_pdn_sync
+ *
+ * Description:
+ *   Constructs a PDN with the specified APN settings.
+ *
+ * Input Parameters:
+ *   apn        The pointer of the apn setting.
+ *   pdn        The construction PDN information.
+ *
+ * Returned Value:
+ *   On success, 0 is returned.
+ *   On failure, negative value is returned according to <errno.h>.
+ *
+ ****************************************************************************/
+
+int32_t altcom_activate_pdn_sync(lte_apn_setting_t *apn, lte_pdn_t *pdn)
+{
   return lte_activatepdn_impl(apn, pdn, NULL);
 }
 
@@ -431,6 +454,10 @@ int32_t lte_activate_pdn_sync(lte_apn_setting_t *apn, lte_pdn_t *pdn)
 
 int32_t lte_activate_pdn(lte_apn_setting_t *apn, activate_pdn_cb_t callback)
 {
+  if (!callback) {
+    DBGIF_LOG_ERROR("Input argument is NULL.\n");
+    return -EINVAL;
+  }
   return lte_activatepdn_impl(apn, NULL, callback);
 }
 

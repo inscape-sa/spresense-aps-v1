@@ -46,7 +46,7 @@
 #include "ltebuilder.h"
 #include "hal_altmdm_spi.h"
 #include "apicmdgw.h"
-#include "stubsock.h"
+#include "altcom_callbacks.h"
 
 #include "apicmdhdlr_enterpin.h"
 #include "apicmdhdlr_errind.h"
@@ -590,11 +590,16 @@ static CODE int32_t lte_buildmain(FAR void *arg)
       goto errout_with_halspi;
     }
 
-#ifdef CONFIG_NET
-  stubsock_initialize();
-#endif
+  ret = altcomcallbacks_init();
+  if (ret < 0)
+    {
+      goto errout_with_apicmdgw;
+    }
 
   return 0;
+
+errout_with_apicmdgw:
+  (void)apicmdgw_uninitialize();
 
 errout_with_halspi:
   (void)halspi_uninitialize();
@@ -631,9 +636,11 @@ static CODE int32_t lte_destroy(void)
 {
   int32_t ret;
 
-#ifdef CONFIG_NET
-  stubsock_finalize();
-#endif
+  ret = altcomcallbacks_fin();
+  if (ret < 0)
+    {
+      return ret;
+    }
 
   ret = apicmdgw_uninitialize();
   if (ret < 0)

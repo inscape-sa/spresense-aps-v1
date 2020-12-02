@@ -37,10 +37,12 @@
  * Included Files
  ****************************************************************************/
 
-#include <sdk/config.h>
+#include <nuttx/config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <fwuputils/fwup_client.h>
 
 #include "fwupdate_local.h"
 
@@ -79,11 +81,7 @@ static void show_usage(FAR const char *progname)
  * fwupdate_main
  ****************************************************************************/
 
-#ifdef CONFIG_BUILD_KERNEL
 int main(int argc, FAR char *argv[])
-#else
-int fwupdate_main(int argc, char *argv[])
-#endif
 {
   int ret = 0;
   int opt = 0;
@@ -118,6 +116,8 @@ int fwupdate_main(int argc, char *argv[])
           return EXIT_FAILURE;
         }
     }
+
+  printf("Free space %u bytes\n", fwup_client_getfreespace());
 
   if (farg)
     {

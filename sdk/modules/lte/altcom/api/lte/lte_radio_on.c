@@ -50,6 +50,8 @@
 #include "apicmd_radioon.h"
 #include "lte_radio_on.h"
 
+#include "lte/altcom/altcom_api.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -248,6 +250,26 @@ errout:
 
 int32_t lte_radio_on_sync(void)
 {
+  return altcom_radio_on_sync();
+}
+
+/****************************************************************************
+ * Name: altcom_radio_on_sync
+ *
+ * Description:
+ *   With the radio on, to start the LTE network search.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   On success, 0 is returned.
+ *   On failure, negative value is returned according to <errno.h>.
+ *
+ ****************************************************************************/
+
+int32_t altcom_radio_on_sync(void)
+{
   return lte_radioon_impl(NULL);
 }
 
@@ -268,6 +290,10 @@ int32_t lte_radio_on_sync(void)
 
 int32_t lte_radio_on(radio_on_cb_t callback)
 {
+  if (!callback) {
+    DBGIF_LOG_ERROR("Input argument is NULL.\n");
+    return -EINVAL;
+  }
   return lte_radioon_impl(callback);
 }
 

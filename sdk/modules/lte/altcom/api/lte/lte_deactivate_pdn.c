@@ -52,6 +52,8 @@
 #include "apicmd_deactivatepdn.h"
 #include "lte_deactivatepdn.h"
 
+#include "lte/altcom/altcom_api.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -266,6 +268,26 @@ errout:
 
 int32_t lte_deactivate_pdn_sync(uint8_t session_id)
 {
+ return altcom_deactivate_pdn_sync(session_id);
+}
+
+/****************************************************************************
+ * Name: altcom_deactivate_pdn_sync
+ *
+ * Description:
+ *   Discard the constructed PDN.
+ *
+ * Input Parameters:
+ *   session_id  The numeric value of the session ID.
+ *
+ * Returned Value:
+ *   On success, 0 is returned.
+ *   On failure, negative value is returned according to <errno.h>.
+ *
+ ****************************************************************************/
+
+int32_t altcom_deactivate_pdn_sync(uint8_t session_id)
+{
  return lte_deactivatepdn_impl(session_id, NULL);
 }
 
@@ -288,6 +310,10 @@ int32_t lte_deactivate_pdn_sync(uint8_t session_id)
 
 int32_t lte_deactivate_pdn(uint8_t session_id, deactivate_pdn_cb_t callback)
 {
+  if (!callback) {
+    DBGIF_LOG_ERROR("Input argument is NULL.\n");
+    return -EINVAL;
+  }
  return lte_deactivatepdn_impl(session_id, callback);
 }
 
